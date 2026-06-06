@@ -8,13 +8,16 @@ const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:5000';
 
 function App() {
   const [socket, setSocket] = useState(null);
-  const [gameState, setGameState] = useState('menu'); // 'menu', 'matching', 'playing', 'game_over'
+  const [gameState, setGameState] = useState('menu'); 
   const [roomId, setRoomId] = useState(null);
   const [players, setPlayers] = useState([]);
   const [myId, setMyId] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [damagedPlayerId, setDamagedPlayerId] = useState(null);
   const [gameOverResult, setGameOverResult] = useState(null);
+  
+  // Emote sistemi state'i
+  const [activeEmotes, setActiveEmotes] = useState([]);
 
   useEffect(() => {
     const newSocket = io(SOCKET_URL);
@@ -32,23 +35,22 @@ function App() {
 
     newSocket.on('new_question', (question) => {
       setCurrentQuestion(question);
-      setDamagedPlayerId(null); // Sarsıntı (shake) efektini sıfırla
-      playSound('slam'); // Bayrak ekrana sertçe gelirken çıkan ses
+      setDamagedPlayerId(null); 
+      playSound('slam'); 
     });
 
     newSocket.on('answer_result', (data) => {
       if (data.isCorrect) {
         playSound('damage');
-        setPlayers(data.players); // Can barlarını (HP) güncelle
+        setPlayers(data.players); 
         
-        // Hasar alan (yanlış yapan veya geç kalan) rakibe shake efekti ver
         const opponentId = data.players.find(p => p.id !== data.playerId)?.id;
         setDamagedPlayerId(opponentId);
       } else {
         if (data.playerId === newSocket.id) {
-          playSound('wrong'); // Kendi yaptığı hata sesi
-          setDamagedPlayerId(newSocket.id); // Kendisine shake efekti ver
-          setTimeout(() => setDamagedPlayerId(null), 500); // Efekti 0.5s sonra kaldır
+          playSound('wrong'); 
+          setDamagedPlayerId(newSocket.id); 
+          setTimeout(() => setDamagedPlayerId(null), 500); 
         }
       }
     });
@@ -56,18 +58,41 @@ function App() {
     newSocket.on('game_over', (data) => {
       setGameOverResult(data);
       setGameState('game_over');
+      setActiveEmotes([]); // oyun bitince emojileri temizle
+    });
+
+    // Rakibin attığı emojiyi dinle
+    newSocket.on('receive_emote', (data) => {
+      triggerEmote(data.senderId, data.emote);
     });
 
     return () => newSocket.close();
   }, []);
 
-  const handleStartMatchmaking = () => {
+  const handleStartMatchmaking = (selectedMode) => {
     setGameState('matching');
-    socket.emit('find_match', { playerName: `Player_${Math.floor(Math.random()*1000)}` });
+    socket.emit('find_match', { 
+      playerName: `Player_${Math.floor(Math.random()*1000)}`,
+      gameMode: selectedMode 
+    });
   };
 
   const handleAnswer = (answerId) => {
     socket.emit('submit_answer', { roomId, answerId });
+  };
+
+  const handleSendEmote = (emote) => {
+    socket.emit('send_emote', { roomId, emote });
+    triggerEmote(myId, emote);
+  };
+
+  const triggerEmote = (senderId, emote) => {
+    const emoteObj = { id: Date.now() + Math.random(), senderId, emote };
+    setActiveEmotes(prev => [...prev, emoteObj]);
+    // 2 saniye sonra listeden sil (animasyon bitince)
+    setTimeout(() => {
+      setActiveEmotes(prev => prev.filter(e => e.id !== emoteObj.id));
+    }, 2500);
   };
 
   if (gameState === 'menu' || gameState === 'matching') {
@@ -100,7 +125,9 @@ function App() {
       myId={myId} 
       currentQuestion={currentQuestion} 
       damagedPlayerId={damagedPlayerId}
+      activeEmotes={activeEmotes}
       onAnswer={handleAnswer} 
+      onSendEmote={handleSendEmote}
     />
   );
 }
