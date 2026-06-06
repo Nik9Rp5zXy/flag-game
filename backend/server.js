@@ -120,6 +120,18 @@ const activeGames = new Map();       // roomId -> GameState
 const playerProfiles = new Map();    // socketId -> session profile
 const disconnectedPlayers = new Map(); // socketId -> timeout details
 const rateLimitMap = new Map();      
+const globalChatHistory = [];
+const MAX_CHAT_HISTORY = 50;
+
+setInterval(() => {
+  const counts = {
+    flag: matchmakingPool.flag.length,
+    capital: matchmakingPool.capital.length,
+    math: matchmakingPool.math.length,
+    coop: matchmakingPool.coop.length
+  };
+  io.emit('pool_counts', counts);
+}, 2000);
 
 const QUESTION_TIME_LIMIT = 10000;
 const RATE_LIMIT_MS = 500;
@@ -312,6 +324,23 @@ function endGame(game, winnerId, loserId, reason) {
 io.on('connection', (socket) => {
   console.log(`[+] Bağlantı: ${socket.id}`);
 
+  // Küresel sohbet geçmişini yeni bağlanana gönder
+  socket.emit('global_chat_history', globalChatHistory);
+
+  socket.on('send_global_message', (data) => {
+    const profile = playerProfiles.get(socket.id);
+    const msg = {
+      id: Date.now() + Math.random().toString(),
+      sender: profile ? profile.name : `Misafir_${socket.id.substring(0, 4)}`,
+      text: data.text,
+      level: profile ? profile.level : 1,
+      time: Date.now()
+    };
+    globalChatHistory.push(msg);
+    if (globalChatHistory.length > MAX_CHAT_HISTORY) globalChatHistory.shift();
+    io.emit('new_global_message', msg);
+  });
+
   // ── MATCHMAKING & AUTH ──
   socket.on('find_match', (data) => {
     let playerName = data?.playerName || `Misafir_${socket.id.substring(0, 4)}`;
@@ -353,8 +382,8 @@ io.on('connection', (socket) => {
         roomId,
         gameMode,
         players: {
-          [socket.id]: { id: socket.id, name: playerName, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile1.level || 1, role: gameMode === 'coop' ? 'analyst' : null },
-          [opponent.id]: { id: opponent.id, name: opponent.name, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile2.level || 1, role: gameMode === 'coop' ? 'breacher' : null }
+          [socket.id]: { id: socket.id, name: playerName, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile1.level || 1, role: gameMode === 'coop' ? 'analyst' : null, equippedItems: profile1.equippedItems || {} },
+          [opponent.id]: { id: opponent.id, name: opponent.name, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile2.level || 1, role: gameMode === 'coop' ? 'breacher' : null, equippedItems: profile2.equippedItems || {} }
         },
         currentQuestion: null,
         questionTimer: null,
@@ -368,7 +397,7 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('match_found', {
         roomId,
         gameMode,
-        players: Object.values(gameData.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, level: p.level, combo: 0, isOnFire: false, role: p.role }))
+        players: Object.values(gameData.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, level: p.level, combo: 0, isOnFire: false, role: p.role, equippedItems: p.equippedItems }))
       });
 
       setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(gameData); }, 2000);
@@ -445,7 +474,7 @@ io.on('connection', (socket) => {
 
       io.to(roomId).emit('answer_result', {
         playerId: socket.id, isCorrect: true, correctAnswerId: game.currentQuestion.correctId, damage, answerTimeMs: answerTime, combo: player.combo, isOnFire: player.isOnFire,
-        players: Object.values(game.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, combo: p.combo, isOnFire: p.isOnFire, level: p.level }))
+        players: Object.values(game.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, combo: p.combo, isOnFire: p.isOnFire, level: p.level, equippedItems: p.equippedItems }))
       });
 
       if (player.isOnFire && !wasOnFire) io.to(roomId).emit('on_fire', { playerId: socket.id });

@@ -4,51 +4,114 @@
     "name": "Altın Çerçeve",
     "category": "frame",
     "price": 200,
-    "description": "Profilinizi altın renkli parlak bir çerçeveyle süsleyin.",
-    "cssClass": "ring-4 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]"
+    "description": "Klasik ve gösterişli saf altın çerçeve."
   },
   {
     "id": "frame_diamond",
     "name": "Elmas Çerçeve",
     "category": "frame",
     "price": 500,
-    "description": "Nadir bulunan elmas parıltılı çerçeve.",
-    "cssClass": "ring-4 ring-cyan-300 shadow-[0_0_20px_rgba(103,232,249,0.7)]"
+    "description": "Nadir bulunan parıldayan elmas kaplama."
   },
   {
     "id": "frame_fire",
-    "name": "Ateş Çerçevesi",
+    "name": "Alev Çerçevesi",
     "category": "frame",
-    "price": 350,
-    "description": "Alev alev yanan korkutucu çerçeve.",
-    "cssClass": "ring-4 ring-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.7)]"
+    "price": 800,
+    "description": "Sürekli yanan cehennem ateşi efekti."
   },
   {
-    "id": "effect_shockwave",
-    "name": "Şok Dalgası Efekti",
+    "id": "frame_mythic_neon",
+    "name": "Mistik Neon Matrix",
+    "category": "frame",
+    "price": 2500,
+    "description": "Elit siber uzay çerçevesi. Animasyonlu yeşil kod dalgaları akar."
+  },
+  {
+    "id": "frame_celestial",
+    "name": "Göksel Hükümdar Çerçevesi",
+    "category": "frame",
+    "price": 5000,
+    "description": "Kozmik yıldız tozlarından dövülmüş efsanevi çerçeve. Sürekli parıldar."
+  },
+
+  {
+    "id": "effect_sparkle",
+    "name": "Işıltı Efekti",
     "category": "effect",
     "price": 300,
-    "description": "Doğru cevap verdiğinizde şok dalgası yayılır."
+    "description": "Avatardan etrafa ışıltılar saçar."
   },
   {
     "id": "effect_lightning",
     "name": "Yıldırım Efekti",
     "category": "effect",
-    "price": 400,
-    "description": "Doğru cevap verdiğinizde yıldırım çakar."
+    "price": 700,
+    "description": "Etrafınızda mavi yıldırımlar çakar."
   },
+  {
+    "id": "effect_void_aura",
+    "name": "Hiçlik Aurası",
+    "category": "effect",
+    "price": 3000,
+    "description": "Karanlık madde parçacıkları sizi sarar. Sadece elit oyuncuların seçimi."
+  },
+  {
+    "id": "effect_dragon_breath",
+    "name": "Ejderha Nefesi",
+    "category": "effect",
+    "price": 4500,
+    "description": "Her cevapta devasa altın alevler püskürür."
+  },
+
   {
     "id": "sound_retro",
     "name": "Retro Ses Paketi",
     "category": "sound",
     "price": 250,
-    "description": "8-bit tarzı nostaljik oyun sesleri."
+    "description": "Eski atari salonu sesleri."
   },
   {
     "id": "sound_cyberpunk",
-    "name": "Cyberpunk Ses Paketi",
+    "name": "Siberpunk Paketi",
     "category": "sound",
-    "price": 450,
-    "description": "Gelecekten gelen neon sesleri."
+    "price": 600,
+    "description": "Fütüristik glitch ve synth sesleri."
+  },
+  {
+    "id": "sound_god_tier",
+    "name": "Tanrısal Çanlar",
+    "category": "sound",
+    "price": 2000,
+    "description": "Cevap verdiğinizde ilahi ve derin yankılanan mistik çan sesleri."
+  },
+
+  {
+    "id": "title_rookie",
+    "name": "Acemi",
+    "category": "title",
+    "price": 100,
+    "description": "Basit bir başlangıç unvanı."
+  },
+  {
+    "id": "title_veteran",
+    "name": "Gazi",
+    "category": "title",
+    "price": 1000,
+    "description": "Savaş alanının deneyimli yüzü."
+  },
+  {
+    "id": "title_cyber_demon",
+    "name": "Siber İblis",
+    "category": "title",
+    "price": 3500,
+    "description": "Ağların ve sistemlerin korkulu rüyası. Neon kırmızı yansımalı unvan."
+  },
+  {
+    "id": "title_omniscient",
+    "name": "Her Şeyi Bilen",
+    "category": "title",
+    "price": 10000,
+    "description": "Evrenin en prestijli unvanı. Altın ışıltılar eşliğinde isminizin üstünde belirir."
   }
 ]

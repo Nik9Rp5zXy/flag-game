@@ -28,6 +28,7 @@ function App() {
   const [coopCommandHint, setCoopCommandHint] = useState('');
 
   const [activeEmotes, setActiveEmotes] = useState([]);
+  const [poolCounts, setPoolCounts] = useState({ flag: 0, capital: 0, math: 0, coop: 0 });
 
   // Auth & Profile
   const [token, setToken] = useState(() => localStorage.getItem('minigame_token'));
@@ -64,6 +65,10 @@ function App() {
 
     newSocket.on('profile_update', (data) => {
       setProfile(prev => ({ ...prev, ...data }));
+    });
+
+    newSocket.on('pool_counts', (counts) => {
+      setPoolCounts(counts);
     });
 
     newSocket.on('match_found', (data) => {
@@ -205,6 +210,8 @@ function App() {
     return (
       <>
         <LoadingScreen
+          socket={socket}
+          poolCounts={poolCounts}
           isMatching={gameState === 'matching'}
           onStart={handleStartMatchmaking}
           profile={profile}

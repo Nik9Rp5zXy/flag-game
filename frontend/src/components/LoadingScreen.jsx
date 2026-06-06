@@ -1,9 +1,12 @@
-import { Loader2, Globe, Building2, Calculator, ShoppingBag, TrendingUp, Coins, LogOut, ShieldAlert } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Loader2, Globe, Building2, Calculator, ShoppingBag, TrendingUp, Coins, LogOut, ShieldAlert, Info, Users } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
+import GlobalChat from './GlobalChat';
+import GuideModal from './GuideModal';
 
-export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop, onLogout, onOpenAuth }) {
+export default function LoadingScreen({ socket, poolCounts, isMatching, onStart, profile, onOpenShop, onLogout, onOpenAuth }) {
   const [selectedMode, setSelectedMode] = useState('flag');
+  const [activeGuide, setActiveGuide] = useState(null);
 
   const modes = [
     { id: 'flag', title: 'Bayrak Düellosu', icon: <Globe className="w-8 h-8" />, color: 'neon-blue', border: 'border-neon-blue', text: 'text-neon-blue', shadow: 'shadow-[0_0_20px_rgba(0,240,255,0.4)]' },
@@ -18,11 +21,20 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-bg-dark text-white p-4 relative z-10">
+      
+      {/* Küresel Sohbet (Sol Alt) */}
+      <GlobalChat socket={socket} profile={profile} />
+
+      {/* Rehber Modalı */}
+      <AnimatePresence>
+        {activeGuide && <GuideModal mode={activeGuide} onClose={() => setActiveGuide(null)} />}
+      </AnimatePresence>
+
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="text-center max-w-4xl w-full"
+        className="text-center max-w-5xl w-full"
       >
         {/* Profil Bar */}
         <motion.div
@@ -33,7 +45,7 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
         >
           <div className="flex items-center gap-3 w-full md:w-auto">
             {isAuthenticated ? (
-              <div className="bg-neon-green/20 text-neon-green px-3 py-1.5 rounded-lg font-bold text-sm border border-neon-green">
+              <div className="bg-neon-green/20 text-neon-green px-3 py-1.5 rounded-lg font-bold text-sm border border-neon-green flex items-center gap-2">
                 {profile?.name}
               </div>
             ) : (
@@ -63,9 +75,14 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
             </div>
             <motion.button
               whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={onOpenShop}
-              className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-600 cursor-pointer"
+              className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-600 cursor-pointer relative"
+              title="Elit Mağaza"
             >
               <ShoppingBag className="w-5 h-5 text-neon-blue" />
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-blue opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-neon-blue"></span>
+              </span>
             </motion.button>
             {isAuthenticated && (
               <motion.button
@@ -81,13 +98,16 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
 
         {/* Logo */}
         <h1 className="text-5xl md:text-7xl font-black mb-8 tracking-tighter bg-gradient-to-r from-neon-red via-neon-purple to-neon-blue text-transparent bg-clip-text drop-shadow-[0_0_15px_rgba(255,0,60,0.5)]">
-          MINIGAME DUEL
+          ELITE DUEL
         </h1>
 
         {isMatching ? (
           <div className="flex flex-col items-center gap-4 mt-12">
             <Loader2 className="w-12 h-12 text-neon-blue animate-spin" />
-            <p className="text-xl text-gray-300 animate-pulse font-medium">Rakip Aranıyor...</p>
+            <p className="text-xl text-gray-300 animate-pulse font-medium">Rakip Aranıyor... (Mod: {selectedMode})</p>
+            <button onClick={() => window.location.reload()} className="mt-4 text-sm text-gray-500 hover:text-white underline">
+               İptal Et
+            </button>
           </div>
         ) : (
           <div className="flex flex-col gap-8 items-center mt-8">
@@ -95,21 +115,42 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
               {modes.map(mode => {
                 const isSelected = selectedMode === mode.id;
+                const searchingCount = poolCounts ? poolCounts[mode.id] : 0;
                 return (
-                  <motion.button
-                    key={mode.id}
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setSelectedMode(mode.id)}
-                    className={`p-6 rounded-xl border-4 transition-all flex flex-col items-center justify-center cursor-pointer gap-2
-                      ${isSelected
-                        ? `${mode.border} ${mode.text} bg-gray-800 ${mode.shadow} scale-105`
-                        : 'border-gray-700 text-gray-500 bg-gray-900 opacity-80 hover:opacity-100 hover:border-gray-500'}
-                    `}
-                  >
-                    <div>{mode.icon}</div>
-                    <span className={`font-bold text-lg ${isSelected ? 'text-white' : ''}`}>{mode.title}</span>
-                  </motion.button>
+                  <div key={mode.id} className="relative group">
+                    <motion.button
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setSelectedMode(mode.id)}
+                      className={`w-full p-6 pb-8 rounded-xl border-4 transition-all flex flex-col items-center justify-center cursor-pointer gap-2
+                        ${isSelected
+                          ? `${mode.border} ${mode.text} bg-gray-800 ${mode.shadow} scale-105 z-10 relative`
+                          : 'border-gray-700 text-gray-500 bg-gray-900 opacity-80 hover:opacity-100 hover:border-gray-500'}
+                      `}
+                    >
+                      <div>{mode.icon}</div>
+                      <span className={`font-bold text-lg ${isSelected ? 'text-white' : ''}`}>{mode.title}</span>
+                      
+                      {/* Eşleşme arayan kişi sayısı */}
+                      <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center gap-1 text-[10px] text-gray-400">
+                         <Users className={`w-3 h-3 ${searchingCount > 0 ? 'text-green-500 animate-pulse' : ''}`} />
+                         {searchingCount > 0 ? (
+                            <span className="text-green-400 font-bold">{searchingCount} kişi arıyor</span>
+                         ) : (
+                            <span>Boşta</span>
+                         )}
+                      </div>
+                    </motion.button>
+                    
+                    {/* Rehber Butonu */}
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setActiveGuide(mode.id); }}
+                      className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-white hover:text-black text-gray-400 rounded-full transition-colors cursor-pointer z-20 border border-gray-600"
+                      title="Nasıl Oynanır?"
+                    >
+                      <Info className="w-4 h-4" />
+                    </button>
+                  </div>
                 );
               })}
             </div>

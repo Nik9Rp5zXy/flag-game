@@ -75,7 +75,15 @@ export default function GameArena({
       {/* ── Oyuncu Kartları ── */}
       <div className="flex justify-between items-center mb-4 gap-4 max-w-4xl mx-auto w-full pt-6 relative z-10">
         <PlayerCard player={me} isMe={true} isDamaged={damagedPlayerId === myId} />
-        <div className="text-xl font-black italic text-gray-600">VS</div>
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-xl font-black italic text-gray-600">VS</div>
+          <button 
+             onClick={() => window.location.reload()}
+             className="px-3 py-1 bg-red-900/50 hover:bg-red-600 text-red-200 text-xs font-bold rounded border border-red-800 transition-colors cursor-pointer"
+          >
+             Menüye Dön
+          </button>
+        </div>
         <PlayerCard player={opponent} isMe={false} isDamaged={damagedPlayerId === opponent.id} />
       </div>
 

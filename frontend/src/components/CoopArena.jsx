@@ -70,7 +70,13 @@ export default function CoopArena({ players, myId, currentPhase, currentHint, co
             <p className="text-sm text-green-700">ROL: {isBreacher ? 'BREACHER (TERMINAL)' : 'ANALYST (RADAR)'}</p>
           </div>
         </div>
-        <div className="flex gap-4">
+        <div className="flex items-center gap-4">
+           <button 
+             onClick={() => window.location.reload()}
+             className="px-3 py-1 bg-red-900/50 hover:bg-red-600 text-red-200 text-xs font-bold rounded border border-red-800 transition-colors cursor-pointer"
+           >
+             Menüye Dön
+           </button>
            <PlayerCard player={me} isMe={true} isDamaged={false} />
            <PlayerCard player={opponent} isMe={false} isDamaged={false} />
         </div>
