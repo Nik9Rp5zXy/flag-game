@@ -4,7 +4,7 @@ import LoadingScreen from './components/LoadingScreen';
 import GameArena from './components/GameArena';
 import { playSound } from './utils/soundManager';
 
-const SOCKET_URL = 'http://localhost:5000'; // Geliştirme için backend adresi
+const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:5000';
 
 function App() {
   const [socket, setSocket] = useState(null);
