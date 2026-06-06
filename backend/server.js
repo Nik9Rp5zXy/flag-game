@@ -2,9 +2,13 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
 const flagsData = require('./src/data/flags.json');
 const capitalsData = require('./src/data/capitals.json');
 const shopItems = require('./src/data/shop_items.json');
+const db = require('./src/db/database');
 
 const app = express();
 app.use(cors());
@@ -18,48 +22,126 @@ const io = new Server(server, {
   pingInterval: 10000
 });
 
+const JWT_SECRET = 'm4u-v4-super-secret-key';
+
 // ============================================================
-// IN-MEMORY STATE
+// REST API: AUTH & SHOP
 // ============================================================
-let matchmakingPool = { flag: [], capital: [], math: [] };
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Backend is running' });
+});
+
+app.post('/api/register', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Kullanıcı adı ve şifre zorunludur' });
+  
+  try {
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    if (existing) return res.status(400).json({ error: 'Bu kullanıcı adı zaten alınmış' });
+    
+    const hash = bcrypt.hashSync(password, 10);
+    const stmt = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)');
+    const info = stmt.run(username, hash);
+    
+    const token = jwt.sign({ id: info.lastInsertRowid, username }, JWT_SECRET);
+    res.json({ token, username, level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {} });
+  } catch (e) {
+    res.status(500).json({ error: 'Kayıt sırasında sunucu hatası oluştu' });
+  }
+});
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    if (!user) return res.status(400).json({ error: 'Kullanıcı bulunamadı' });
+    
+    if (!bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(400).json({ error: 'Hatalı şifre' });
+    }
+    
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
+    res.json({ 
+      token, 
+      username, 
+      level: user.level, 
+      xp: user.xp, 
+      coins: user.coins, 
+      ownedItems: JSON.parse(user.owned_items), 
+      equippedItems: JSON.parse(user.equipped_items) 
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Giriş sırasında sunucu hatası oluştu' });
+  }
+});
+
+app.get('/api/shop', (req, res) => {
+  res.json(shopItems);
+});
+
+app.post('/api/purchase', (req, res) => {
+  const { token, itemId } = req.body;
+  if (!token) return res.status(401).json({ error: 'Yetkisiz erişim' });
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    const item = shopItems.find(i => i.id === itemId);
+    if (!item) return res.status(404).json({ error: 'Ürün bulunamadı' });
+
+    if (user.coins < item.price) {
+      return res.status(400).json({ error: 'Yetersiz bakiye' });
+    }
+
+    const ownedItems = JSON.parse(user.owned_items);
+    if (ownedItems.includes(itemId)) {
+      return res.status(400).json({ error: 'Bu ürüne zaten sahipsiniz' });
+    }
+
+    ownedItems.push(itemId);
+    const newCoins = user.coins - item.price;
+    
+    db.prepare('UPDATE users SET coins = ?, owned_items = ? WHERE id = ?')
+      .run(newCoins, JSON.stringify(ownedItems), user.id);
+      
+    res.json({ success: true, coins: newCoins, ownedItems });
+  } catch (e) {
+    res.status(500).json({ error: 'Satın alma işlemi başarısız' });
+  }
+});
+
+// ============================================================
+// IN-MEMORY STATE FOR GAMES
+// ============================================================
+let matchmakingPool = { flag: [], capital: [], math: [], coop: [] };
 const activeGames = new Map();       // roomId -> GameState
-const playerProfiles = new Map();    // socketId -> profile (session-only)
-const disconnectedPlayers = new Map(); // socketId -> { gameRoomId, timeout, profile }
-const rateLimitMap = new Map();      // socketId -> lastAnswerTimestamp
+const playerProfiles = new Map();    // socketId -> session profile
+const disconnectedPlayers = new Map(); // socketId -> timeout details
+const rateLimitMap = new Map();      
 
-// ============================================================
-// CONSTANTS
-// ============================================================
-const QUESTION_TIME_LIMIT = 10000;   // 10 saniye
-const RATE_LIMIT_MS = 500;           // 500ms minimum cevap arası
-const AFK_WARNING_ROUNDS = 1;        // 1 tur AFK sonrası uyarı
-const AFK_KICK_ROUNDS = 2;           // 2 tur AFK sonrası otomatik yenilgi
-const RECONNECT_TIMEOUT = 15000;     // 15 saniye reconnect süresi
-const COMBO_SPEED_THRESHOLD = 2000;  // 2sn altı = hızlı cevap
-const COMBO_FIRE_THRESHOLD = 3;      // 3 art arda hızlı = ON FIRE
-const ON_FIRE_DAMAGE_MULTIPLIER = 2; // ON FIRE hasar çarpanı
-const BASE_WIN_COINS = 50;
-const BASE_LOSE_COINS = 10;
-const BASE_XP_PER_CORRECT = 25;
-const SPEED_BONUS_MAX = 15;          // Hız bonusu max XP
+const QUESTION_TIME_LIMIT = 10000;
+const RATE_LIMIT_MS = 500;
+const AFK_WARNING_ROUNDS = 1;
+const AFK_KICK_ROUNDS = 2;
+const RECONNECT_TIMEOUT = 15000;
+const COMBO_SPEED_THRESHOLD = 2000;
+const COMBO_FIRE_THRESHOLD = 3;
+const ON_FIRE_DAMAGE_MULTIPLIER = 2;
 
-// ============================================================
-// HELPER: XP & LEVEL
-// ============================================================
-function xpToNextLevel(level) {
-  return level * 100;
-}
+function xpToNextLevel(level) { return level * 100; }
 
 function calculateXpGain(stats) {
-  let xp = stats.correctAnswers * BASE_XP_PER_CORRECT;
-  xp += Math.min(stats.speedBonus, SPEED_BONUS_MAX * stats.correctAnswers);
+  let xp = stats.correctAnswers * 25;
+  xp += Math.min(stats.speedBonus, 15 * stats.correctAnswers);
   xp += stats.maxCombo * 10;
   if (stats.isWinner) xp = Math.floor(xp * 1.5);
   return Math.max(xp, 10);
 }
 
 function calculateCoins(isWinner, winStreak) {
-  let coins = isWinner ? BASE_WIN_COINS : BASE_LOSE_COINS;
+  let coins = isWinner ? 50 : 10;
   if (isWinner && winStreak >= 3) coins = Math.floor(coins * 2);
   else if (isWinner && winStreak >= 2) coins = Math.floor(coins * 1.5);
   return coins;
@@ -73,101 +155,71 @@ function generateQuestion(gameMode) {
     const shuffled = [...flagsData].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, 4);
     const correct = selected[Math.floor(Math.random() * 4)];
-    return {
-      type: 'flag',
-      correctId: correct.id,
-      questionData: { flagUrl: correct.flagUrl },
-      options: selected.map(f => ({ id: f.id, text: f.name })),
-      createdAt: Date.now()
-    };
-  }
-  else if (gameMode === 'capital') {
+    return { type: 'flag', correctId: correct.id, questionData: { flagUrl: correct.flagUrl }, options: selected.map(f => ({ id: f.id, text: f.name })), createdAt: Date.now() };
+  } else if (gameMode === 'capital') {
     const shuffled = [...capitalsData].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, 4);
     const correct = selected[Math.floor(Math.random() * 4)];
-    return {
-      type: 'capital',
-      correctId: correct.id,
-      questionData: { text: `${correct.country} başkenti neresidir?` },
-      options: selected.map(c => ({ id: c.id, text: c.capital })),
-      createdAt: Date.now()
-    };
-  }
-  else if (gameMode === 'math') {
+    return { type: 'capital', correctId: correct.id, questionData: { text: `${correct.country} başkenti neresidir?` }, options: selected.map(c => ({ id: c.id, text: c.capital })), createdAt: Date.now() };
+  } else if (gameMode === 'math') {
     const ops = ['+', '-', '*'];
     const op = ops[Math.floor(Math.random() * ops.length)];
     let a = Math.floor(Math.random() * 20) + 1;
     let b = Math.floor(Math.random() * 20) + 1;
     if (op === '-' && a < b) { const t = a; a = b; b = t; }
     if (op === '*') { a = Math.floor(Math.random() * 10) + 1; b = Math.floor(Math.random() * 10) + 1; }
-
-    let correctAns = 0;
-    if (op === '+') correctAns = a + b;
-    if (op === '-') correctAns = a - b;
-    if (op === '*') correctAns = a * b;
-
+    let correctAns = op === '+' ? a + b : op === '-' ? a - b : a * b;
     const optionsSet = new Set([correctAns]);
     while (optionsSet.size < 4) {
       const wrong = correctAns + (Math.floor(Math.random() * 10) - 5);
       if (wrong !== correctAns && wrong >= 0) optionsSet.add(wrong);
     }
     const optionsArray = Array.from(optionsSet).sort(() => 0.5 - Math.random());
-
-    return {
-      type: 'math',
-      correctId: correctAns.toString(),
-      questionData: { text: `${a} ${op} ${b} = ?` },
-      options: optionsArray.map(o => ({ id: o.toString(), text: o.toString() })),
-      createdAt: Date.now()
-    };
+    return { type: 'math', correctId: correctAns.toString(), questionData: { text: `${a} ${op} ${b} = ?` }, options: optionsArray.map(o => ({ id: o.toString(), text: o.toString() })), createdAt: Date.now() };
   }
 }
 
-function getPublicQuestionData(question) {
-  return {
-    type: question.type,
-    questionData: question.questionData,
-    options: question.options
-  };
+// ============================================================
+// CO-OP MECHANICS (CYBER BREACH)
+// ============================================================
+function generateCoopPhase(phase) {
+  const port = Math.floor(Math.random() * 8000) + 1000;
+  const passwords = ['admin', 'root', '1234', 'qwerty', 'system'];
+  const pass = passwords[Math.floor(Math.random() * passwords.length)];
+  
+  if (phase === 1) {
+    return { phase, targetPort: port, requiredRegex: new RegExp(`^crack\\s+(-p|--port)\\s+${port}$`, 'i'), timeLimit: 30000, hint: `Hedef Port: ${port}`, commandHint: 'crack -p [PORT]' };
+  } else {
+    return { phase, targetPort: port, password: pass, requiredRegex: new RegExp(`^breach\\s+${port}\\s+${pass}$`, 'i'), timeLimit: 20000, hint: `Port: ${port} | Pass: ${pass}`, commandHint: 'breach [PORT] [PASS]' };
+  }
 }
 
-// ============================================================
-// HELPER: SEND NEW QUESTION WITH TIMER
-// ============================================================
 function sendNewQuestion(game) {
-  // Önceki timer'ı temizle
   if (game.questionTimer) clearTimeout(game.questionTimer);
+  
+  if (game.gameMode === 'coop') {
+    game.currentCoop = generateCoopPhase(game.coopPhase || 1);
+    io.to(game.roomId).emit('coop_new_phase', { phase: game.currentCoop.phase, hint: game.currentCoop.hint, commandHint: game.currentCoop.commandHint });
+    game.questionTimer = setTimeout(() => { handleCoopTimeUp(game); }, game.currentCoop.timeLimit);
+    return;
+  }
 
   game.currentQuestion = generateQuestion(game.gameMode);
-  game.roundAnswered = {}; // her tur başında sıfırla
-
-  // Her iki oyuncunun AFK sayacını kontrol et
+  game.roundAnswered = {}; 
   for (const pid of Object.keys(game.players)) {
     const p = game.players[pid];
-    if (!p.answeredThisRound) {
-      p.afkRounds = (p.afkRounds || 0) + 1;
-    } else {
-      p.afkRounds = 0;
-    }
+    if (!p.answeredThisRound) p.afkRounds = (p.afkRounds || 0) + 1;
+    else p.afkRounds = 0;
     p.answeredThisRound = false;
   }
-
-  io.to(game.roomId).emit('new_question', getPublicQuestionData(game.currentQuestion));
-
-  // 10 saniye süre zamanlayıcısı
-  game.questionTimer = setTimeout(() => {
-    handleTimeUp(game);
-  }, QUESTION_TIME_LIMIT);
+  
+  io.to(game.roomId).emit('new_question', { type: game.currentQuestion.type, questionData: game.currentQuestion.questionData, options: game.currentQuestion.options });
+  game.questionTimer = setTimeout(() => { handleTimeUp(game); }, QUESTION_TIME_LIMIT);
 }
 
 function handleTimeUp(game) {
   if (!activeGames.has(game.roomId)) return;
-
-  io.to(game.roomId).emit('time_up', {
-    correctAnswerId: game.currentQuestion.correctId
-  });
-
-  // AFK kontrolü
+  io.to(game.roomId).emit('time_up', { correctAnswerId: game.currentQuestion.correctId });
   for (const pid of Object.keys(game.players)) {
     const p = game.players[pid];
     if (!p.answeredThisRound) {
@@ -182,61 +234,41 @@ function handleTimeUp(game) {
         return;
       }
     }
-    // Kombo kırılır
-    p.combo = 0;
-    p.isOnFire = false;
+    p.combo = 0; p.isOnFire = false;
   }
-
-  // Yeni soru gönder
-  setTimeout(() => {
-    if (activeGames.has(game.roomId)) {
-      sendNewQuestion(game);
-    }
-  }, 2000);
+  setTimeout(() => { if (activeGames.has(game.roomId)) sendNewQuestion(game); }, 2000);
 }
 
-// ============================================================
-// HELPER: END GAME
-// ============================================================
+function handleCoopTimeUp(game) {
+  if (!activeGames.has(game.roomId)) return;
+  io.to(game.roomId).emit('coop_failed', { reason: 'Süre doldu! Sistemler kilitlendi.' });
+  setTimeout(() => {
+    activeGames.delete(game.roomId);
+  }, 3000);
+}
+
 function endGame(game, winnerId, loserId, reason) {
   if (game.questionTimer) clearTimeout(game.questionTimer);
   if (game.reconnectTimeout) clearTimeout(game.reconnectTimeout);
 
   const winnerPlayer = game.players[winnerId];
   const loserPlayer = game.players[loserId];
-
-  // Profil istatistikleri güncelle
   const winnerProfile = playerProfiles.get(winnerId) || {};
   const loserProfile = playerProfiles.get(loserId) || {};
 
   winnerProfile.winStreak = (winnerProfile.winStreak || 0) + 1;
   loserProfile.winStreak = 0;
 
-  // XP hesapla
-  const winnerXp = calculateXpGain({
-    correctAnswers: winnerPlayer.correctAnswers || 0,
-    speedBonus: winnerPlayer.totalSpeedBonus || 0,
-    maxCombo: winnerPlayer.maxCombo || 0,
-    isWinner: true
-  });
-  const loserXp = calculateXpGain({
-    correctAnswers: loserPlayer.correctAnswers || 0,
-    speedBonus: loserPlayer.totalSpeedBonus || 0,
-    maxCombo: loserPlayer.maxCombo || 0,
-    isWinner: false
-  });
-
-  // Coin hesapla
+  const winnerXp = calculateXpGain({ correctAnswers: winnerPlayer.correctAnswers || 0, speedBonus: winnerPlayer.totalSpeedBonus || 0, maxCombo: winnerPlayer.maxCombo || 0, isWinner: true });
+  const loserXp = calculateXpGain({ correctAnswers: loserPlayer.correctAnswers || 0, speedBonus: loserPlayer.totalSpeedBonus || 0, maxCombo: loserPlayer.maxCombo || 0, isWinner: false });
   const winnerCoins = calculateCoins(true, winnerProfile.winStreak || 1);
   const loserCoins = calculateCoins(false, 0);
 
-  // Profillere ekle
   winnerProfile.xp = (winnerProfile.xp || 0) + winnerXp;
   winnerProfile.coins = (winnerProfile.coins || 0) + winnerCoins;
   loserProfile.xp = (loserProfile.xp || 0) + loserXp;
   loserProfile.coins = (loserProfile.coins || 0) + loserCoins;
 
-  // Level-up kontrolü
   let winnerLevelUp = false;
   let loserLevelUp = false;
   while (winnerProfile.xp >= xpToNextLevel(winnerProfile.level || 1)) {
@@ -250,104 +282,29 @@ function endGame(game, winnerId, loserId, reason) {
     loserLevelUp = true;
   }
 
+  // UPDATE DATABASE IF LOGGED IN
+  if (winnerProfile.dbUserId) {
+    db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
+      .run(winnerProfile.level, winnerProfile.xp, winnerProfile.coins, winnerProfile.winStreak, winnerProfile.dbUserId);
+  }
+  if (loserProfile.dbUserId) {
+    db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
+      .run(loserProfile.level, loserProfile.xp, loserProfile.coins, loserProfile.winStreak, loserProfile.dbUserId);
+  }
+
   playerProfiles.set(winnerId, winnerProfile);
   playerProfiles.set(loserId, loserProfile);
 
-  // game_summary event'i gönder
-  const summaryBase = {
-    winnerId,
-    loserId,
-    reason: reason || 'knockout'
-  };
-
-  // Kazanana özel veri
+  const summaryBase = { winnerId, loserId, reason: reason || 'knockout' };
+  
   const winSock = io.sockets.sockets.get(winnerId);
-  if (winSock) {
-    winSock.emit('game_summary', {
-      ...summaryBase,
-      yourStats: {
-        isWinner: true,
-        xpGained: winnerXp,
-        coinsGained: winnerCoins,
-        correctAnswers: winnerPlayer.correctAnswers || 0,
-        maxCombo: winnerPlayer.maxCombo || 0,
-        newLevel: winnerProfile.level || 1,
-        newXp: winnerProfile.xp,
-        newCoins: winnerProfile.coins,
-        xpToNext: xpToNextLevel(winnerProfile.level || 1),
-        levelUp: winnerLevelUp,
-        winStreak: winnerProfile.winStreak || 1
-      }
-    });
-  }
-
-  // Kaybedene özel veri
+  if (winSock) winSock.emit('game_summary', { ...summaryBase, yourStats: { isWinner: true, xpGained: winnerXp, coinsGained: winnerCoins, correctAnswers: winnerPlayer.correctAnswers || 0, maxCombo: winnerPlayer.maxCombo || 0, newLevel: winnerProfile.level, newXp: winnerProfile.xp, newCoins: winnerProfile.coins, xpToNext: xpToNextLevel(winnerProfile.level), levelUp: winnerLevelUp, winStreak: winnerProfile.winStreak } });
+  
   const loseSock = io.sockets.sockets.get(loserId);
-  if (loseSock) {
-    loseSock.emit('game_summary', {
-      ...summaryBase,
-      yourStats: {
-        isWinner: false,
-        xpGained: loserXp,
-        coinsGained: loserCoins,
-        correctAnswers: loserPlayer.correctAnswers || 0,
-        maxCombo: loserPlayer.maxCombo || 0,
-        newLevel: loserProfile.level || 1,
-        newXp: loserProfile.xp,
-        newCoins: loserProfile.coins,
-        xpToNext: xpToNextLevel(loserProfile.level || 1),
-        levelUp: loserLevelUp,
-        winStreak: 0
-      }
-    });
-  }
+  if (loseSock) loseSock.emit('game_summary', { ...summaryBase, yourStats: { isWinner: false, xpGained: loserXp, coinsGained: loserCoins, correctAnswers: loserPlayer.correctAnswers || 0, maxCombo: loserPlayer.maxCombo || 0, newLevel: loserProfile.level, newXp: loserProfile.xp, newCoins: loserProfile.coins, xpToNext: xpToNextLevel(loserProfile.level), levelUp: loserLevelUp, winStreak: 0 } });
 
   activeGames.delete(game.roomId);
 }
-
-// ============================================================
-// SHOP API
-// ============================================================
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Backend is running' });
-});
-
-app.get('/api/shop', (req, res) => {
-  res.json(shopItems);
-});
-
-app.post('/api/purchase', (req, res) => {
-  const { socketId, itemId } = req.body;
-  const profile = playerProfiles.get(socketId);
-  if (!profile) return res.status(400).json({ error: 'Profil bulunamadı' });
-
-  const item = shopItems.find(i => i.id === itemId);
-  if (!item) return res.status(404).json({ error: 'Ürün bulunamadı' });
-
-  if ((profile.coins || 0) < item.price) {
-    return res.status(400).json({ error: 'Yetersiz bakiye' });
-  }
-
-  if (profile.ownedItems && profile.ownedItems.includes(itemId)) {
-    return res.status(400).json({ error: 'Bu ürüne zaten sahipsiniz' });
-  }
-
-  profile.coins -= item.price;
-  if (!profile.ownedItems) profile.ownedItems = [];
-  profile.ownedItems.push(itemId);
-  playerProfiles.set(socketId, profile);
-
-  // Socket üzerinden de bildir
-  const sock = io.sockets.sockets.get(socketId);
-  if (sock) {
-    sock.emit('profile_update', {
-      coins: profile.coins,
-      ownedItems: profile.ownedItems
-    });
-  }
-
-  res.json({ success: true, coins: profile.coins, ownedItems: profile.ownedItems });
-});
 
 // ============================================================
 // SOCKET.IO CONNECTIONS
@@ -355,73 +312,31 @@ app.post('/api/purchase', (req, res) => {
 io.on('connection', (socket) => {
   console.log(`[+] Bağlantı: ${socket.id}`);
 
-  // Oyuncu profilini başlat
-  if (!playerProfiles.has(socket.id)) {
-    playerProfiles.set(socket.id, {
-      level: 1, xp: 0, coins: 0,
-      winStreak: 0, ownedItems: [], equippedItems: {}
-    });
-  }
-
-  // Profil bilgilerini gönder
-  socket.emit('profile_update', playerProfiles.get(socket.id));
-
-  // ── RECONNECT ──
-  socket.on('attempt_reconnect', (data) => {
-    const { oldSocketId } = data;
-    const dcData = disconnectedPlayers.get(oldSocketId);
-    if (!dcData) {
-      socket.emit('reconnect_failed');
-      return;
-    }
-
-    clearTimeout(dcData.timeout);
-    disconnectedPlayers.delete(oldSocketId);
-
-    const game = activeGames.get(dcData.gameRoomId);
-    if (!game) {
-      socket.emit('reconnect_failed');
-      return;
-    }
-
-    // Eski ID'yi yeni ID ile değiştir
-    const oldPlayer = game.players[oldSocketId];
-    if (oldPlayer) {
-      oldPlayer.id = socket.id;
-      game.players[socket.id] = oldPlayer;
-      delete game.players[oldSocketId];
-    }
-
-    // Profili aktar
-    const oldProfile = dcData.profile;
-    if (oldProfile) {
-      playerProfiles.set(socket.id, oldProfile);
-    }
-
-    socket.join(dcData.gameRoomId);
-
-    socket.emit('reconnected', {
-      roomId: dcData.gameRoomId,
-      gameMode: game.gameMode,
-      players: Object.values(game.players),
-      currentQuestion: getPublicQuestionData(game.currentQuestion)
-    });
-
-    // Rakibe haber ver
-    socket.to(dcData.gameRoomId).emit('opponent_reconnected');
-    console.log(`[↻] Reconnect: ${oldSocketId} → ${socket.id}`);
-  });
-
-  // ── MATCHMAKING ──
+  // ── MATCHMAKING & AUTH ──
   socket.on('find_match', (data) => {
-    const playerName = data?.playerName || `Oyuncu_${socket.id.substring(0, 4)}`;
+    let playerName = data?.playerName || `Misafir_${socket.id.substring(0, 4)}`;
     const gameMode = data?.gameMode || 'flag';
+    const token = data?.token;
 
-    // Tüm havuzlardan temizle
-    for (const mode in matchmakingPool) {
-      matchmakingPool[mode] = matchmakingPool[mode].filter(p => p.id !== socket.id);
+    let profile = { level: 1, xp: 0, coins: 0, winStreak: 0, ownedItems: [], equippedItems: {} };
+    let dbUserId = null;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+        if (user) {
+          playerName = user.username;
+          dbUserId = user.id;
+          profile = { level: user.level, xp: user.xp, coins: user.coins, winStreak: user.win_streak, ownedItems: JSON.parse(user.owned_items), equippedItems: JSON.parse(user.equipped_items) };
+        }
+      } catch (e) { /* invalid token */ }
     }
 
+    playerProfiles.set(socket.id, { ...profile, dbUserId, name: playerName });
+    socket.emit('profile_update', { ...profile, name: playerName, isAuthenticated: !!dbUserId });
+
+    for (const mode in matchmakingPool) matchmakingPool[mode] = matchmakingPool[mode].filter(p => p.id !== socket.id);
     if (!matchmakingPool[gameMode]) matchmakingPool[gameMode] = [];
 
     if (matchmakingPool[gameMode].length > 0) {
@@ -438,43 +353,25 @@ io.on('connection', (socket) => {
         roomId,
         gameMode,
         players: {
-          [socket.id]: {
-            id: socket.id, name: playerName, hp: 3,
-            combo: 0, isOnFire: false, afkRounds: 0,
-            answeredThisRound: false,
-            correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0,
-            level: profile1.level || 1
-          },
-          [opponent.id]: {
-            id: opponent.id, name: opponent.name, hp: 3,
-            combo: 0, isOnFire: false, afkRounds: 0,
-            answeredThisRound: false,
-            correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0,
-            level: profile2.level || 1
-          }
+          [socket.id]: { id: socket.id, name: playerName, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile1.level || 1, role: gameMode === 'coop' ? 'analyst' : null },
+          [opponent.id]: { id: opponent.id, name: opponent.name, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile2.level || 1, role: gameMode === 'coop' ? 'breacher' : null }
         },
         currentQuestion: null,
         questionTimer: null,
         roundAnswered: {}
       };
+
+      if (gameMode === 'coop') gameData.coopPhase = 1;
+
       activeGames.set(roomId, gameData);
 
       io.to(roomId).emit('match_found', {
         roomId,
         gameMode,
-        players: Object.values(gameData.players).map(p => ({
-          id: p.id, name: p.name, hp: p.hp, level: p.level,
-          combo: 0, isOnFire: false
-        }))
+        players: Object.values(gameData.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, level: p.level, combo: 0, isOnFire: false, role: p.role }))
       });
 
-      // 2 saniye sonra ilk soruyu gönder
-      setTimeout(() => {
-        if (activeGames.has(roomId)) {
-          sendNewQuestion(gameData);
-        }
-      }, 2000);
-
+      setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(gameData); }, 2000);
       console.log(`[⚔] Eşleşme: ${roomId} [${gameMode}]`);
     } else {
       matchmakingPool[gameMode].push({ id: socket.id, socket, name: playerName });
@@ -482,35 +379,42 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── EMOTE ──
-  socket.on('send_emote', (data) => {
-    const { roomId, emote } = data;
-    if (!roomId || !emote) return;
-    const allowedEmotes = ['😂', '😡', '🤡', '🚀', '🔥', '💀'];
-    if (!allowedEmotes.includes(emote)) return;
-    socket.to(roomId).emit('receive_emote', { senderId: socket.id, emote });
-  });
-
-  // ── SUBMIT ANSWER ──
   socket.on('submit_answer', (data) => {
     const { roomId, answerId } = data;
-    if (!roomId || answerId === undefined) return;
-
-    // ── Rate Limiting ──
+    if (!roomId) return;
     const now = Date.now();
     const lastAnswer = rateLimitMap.get(socket.id) || 0;
-    if (now - lastAnswer < RATE_LIMIT_MS) {
-      console.log(`[⛔] Rate limit: ${socket.id}`);
-      return; // drop
-    }
+    if (now - lastAnswer < RATE_LIMIT_MS) return;
     rateLimitMap.set(socket.id, now);
 
     const game = activeGames.get(roomId);
-    if (!game || !game.currentQuestion) return;
-    if (!game.players[socket.id]) return;
+    if (!game || !game.players[socket.id]) return;
 
-    // Zaten bu turda cevap verdiyse drop et
+    // CO-OP MECHANICS
+    if (game.gameMode === 'coop') {
+      const player = game.players[socket.id];
+      if (player.role !== 'breacher') return; // Sadece breacher komut yazabilir
+      
+      const isCorrect = game.currentCoop.requiredRegex.test(answerId);
+      if (isCorrect) {
+        if (game.questionTimer) clearTimeout(game.questionTimer);
+        io.to(roomId).emit('coop_success', { phase: game.currentCoop.phase });
+        if (game.coopPhase >= 2) {
+          // Co-op bitti, iki oyuncuya da XP/Coin verelim (basit bir win state)
+          setTimeout(() => endGame(game, socket.id, socket.id, 'coop_victory'), 2000); 
+        } else {
+          game.coopPhase += 1;
+          setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(game); }, 2000);
+        }
+      } else {
+        socket.emit('coop_terminal_error', { command: answerId, error: 'Bilinmeyen komut veya yanlış parametre!' });
+      }
+      return;
+    }
+
+    // REGULAR GAME MECHANICS
     if (game.roundAnswered && game.roundAnswered[socket.id]) return;
+    if (!game.currentQuestion) return;
 
     const player = game.players[socket.id];
     const opponentId = Object.keys(game.players).find(id => id !== socket.id);
@@ -525,138 +429,72 @@ io.on('connection', (socket) => {
 
     if (isCorrect) {
       player.correctAnswers = (player.correctAnswers || 0) + 1;
-
-      // Hız bonusu (ne kadar hızlı = o kadar çok bonus)
       const speedBonus = Math.max(0, Math.floor((QUESTION_TIME_LIMIT - answerTime) / 1000));
       player.totalSpeedBonus = (player.totalSpeedBonus || 0) + speedBonus;
-
-      // Kombo sistemi
-      if (answerTime < COMBO_SPEED_THRESHOLD) {
-        player.combo = (player.combo || 0) + 1;
-      } else {
-        player.combo = 0;
-      }
+      if (answerTime < COMBO_SPEED_THRESHOLD) player.combo = (player.combo || 0) + 1;
+      else player.combo = 0;
       player.maxCombo = Math.max(player.maxCombo || 0, player.combo);
-
-      // ON FIRE kontrolü
+      
       const wasOnFire = player.isOnFire;
-      if (player.combo >= COMBO_FIRE_THRESHOLD) {
-        player.isOnFire = true;
-      }
+      if (player.combo >= COMBO_FIRE_THRESHOLD) player.isOnFire = true;
 
-      // Hasar hesapla
-      let damage = 1;
-      if (player.isOnFire) damage = ON_FIRE_DAMAGE_MULTIPLIER;
+      let damage = player.isOnFire ? ON_FIRE_DAMAGE_MULTIPLIER : 1;
       opponent.hp = Math.max(0, opponent.hp - damage);
 
-      // Timer'ı temizle
       if (game.questionTimer) clearTimeout(game.questionTimer);
 
-      // Sonucu bildir
       io.to(roomId).emit('answer_result', {
-        playerId: socket.id,
-        isCorrect: true,
-        correctAnswerId: game.currentQuestion.correctId,
-        damage,
-        answerTimeMs: answerTime,
-        combo: player.combo,
-        isOnFire: player.isOnFire,
-        players: Object.values(game.players).map(p => ({
-          id: p.id, name: p.name, hp: p.hp,
-          combo: p.combo, isOnFire: p.isOnFire, level: p.level
-        }))
+        playerId: socket.id, isCorrect: true, correctAnswerId: game.currentQuestion.correctId, damage, answerTimeMs: answerTime, combo: player.combo, isOnFire: player.isOnFire,
+        players: Object.values(game.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, combo: p.combo, isOnFire: p.isOnFire, level: p.level }))
       });
 
-      // ON FIRE yeni başladıysa özel event
-      if (player.isOnFire && !wasOnFire) {
-        io.to(roomId).emit('on_fire', { playerId: socket.id });
-      }
+      if (player.isOnFire && !wasOnFire) io.to(roomId).emit('on_fire', { playerId: socket.id });
 
-      // Oyun bitti mi?
-      if (opponent.hp <= 0) {
-        setTimeout(() => endGame(game, socket.id, opponentId, 'knockout'), 1500);
-      } else {
-        setTimeout(() => {
-          if (activeGames.has(roomId)) {
-            sendNewQuestion(game);
-          }
-        }, 2000);
-      }
+      if (opponent.hp <= 0) setTimeout(() => endGame(game, socket.id, opponentId, 'knockout'), 1500);
+      else setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(game); }, 2000);
     } else {
-      // Yanlış cevap — kombo kırılır
       player.combo = 0;
       if (player.isOnFire) {
         player.isOnFire = false;
         io.to(roomId).emit('fire_off', { playerId: socket.id });
       }
-
-      socket.emit('answer_result', {
-        playerId: socket.id,
-        isCorrect: false,
-        combo: 0,
-        isOnFire: false
-      });
+      socket.emit('answer_result', { playerId: socket.id, isCorrect: false, combo: 0, isOnFire: false });
     }
   });
 
-  // ── EQUIP ITEM ──
-  socket.on('equip_item', (data) => {
-    const { itemId, category } = data;
-    const profile = playerProfiles.get(socket.id);
-    if (!profile) return;
-    if (!profile.ownedItems || !profile.ownedItems.includes(itemId)) return;
-    if (!profile.equippedItems) profile.equippedItems = {};
-    profile.equippedItems[category] = itemId;
-    playerProfiles.set(socket.id, profile);
-    socket.emit('profile_update', profile);
+  socket.on('coop_ping', (data) => {
+    const game = activeGames.get(data.roomId);
+    if (!game || game.gameMode !== 'coop') return;
+    // Analyst ping the breacher
+    socket.to(data.roomId).emit('coop_receive_ping', { message: data.message });
   });
 
-  // ── DISCONNECT ──
   socket.on('disconnect', () => {
-    console.log(`[-] Bağlantı koptu: ${socket.id}`);
-
-    // Matchmaking'den temizle
-    for (const mode in matchmakingPool) {
-      matchmakingPool[mode] = matchmakingPool[mode].filter(p => p.id !== socket.id);
-    }
-
-    // Aktif oyun varsa reconnect penceresi aç
+    for (const mode in matchmakingPool) matchmakingPool[mode] = matchmakingPool[mode].filter(p => p.id !== socket.id);
     for (const [roomId, game] of activeGames.entries()) {
       if (game.players[socket.id]) {
         const opponentId = Object.keys(game.players).find(id => id !== socket.id);
-
-        // Rakibe bildir: bekleniyor
         io.to(roomId).emit('opponent_disconnected_waiting', { disconnectedId: socket.id });
-
-        // Timer'ı durdur
         if (game.questionTimer) clearTimeout(game.questionTimer);
-
-        // Reconnect bekleme süresi
         const timeout = setTimeout(() => {
           disconnectedPlayers.delete(socket.id);
           if (activeGames.has(roomId)) {
-            endGame(game, opponentId, socket.id, 'opponent_disconnected');
+             if (game.gameMode === 'coop') {
+                io.to(roomId).emit('coop_failed', { reason: 'Partnerinizin bağlantısı koptu. Operasyon iptal.' });
+                activeGames.delete(roomId);
+             } else {
+                endGame(game, opponentId, socket.id, 'opponent_disconnected');
+             }
           }
         }, RECONNECT_TIMEOUT);
-
-        disconnectedPlayers.set(socket.id, {
-          gameRoomId: roomId,
-          timeout,
-          profile: playerProfiles.get(socket.id)
-        });
-
+        disconnectedPlayers.set(socket.id, { gameRoomId: roomId, timeout, profile: playerProfiles.get(socket.id) });
         break;
       }
     }
-
-    // Rate limit temizle
     rateLimitMap.delete(socket.id);
   });
 });
 
-// ============================================================
-// START SERVER
-// ============================================================
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Sunucu port ${PORT} üzerinde çalışıyor.`);

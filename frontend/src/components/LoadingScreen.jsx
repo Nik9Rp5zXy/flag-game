@@ -1,18 +1,20 @@
-import { Loader2, Globe, Building2, Calculator, ShoppingBag, TrendingUp, Coins } from 'lucide-react';
+import { Loader2, Globe, Building2, Calculator, ShoppingBag, TrendingUp, Coins, LogOut, ShieldAlert } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 
-export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop }) {
+export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop, onLogout, onOpenAuth }) {
   const [selectedMode, setSelectedMode] = useState('flag');
 
   const modes = [
     { id: 'flag', title: 'Bayrak Düellosu', icon: <Globe className="w-8 h-8" />, color: 'neon-blue', border: 'border-neon-blue', text: 'text-neon-blue', shadow: 'shadow-[0_0_20px_rgba(0,240,255,0.4)]' },
     { id: 'capital', title: 'Başkent Düellosu', icon: <Building2 className="w-8 h-8" />, color: 'neon-purple', border: 'border-neon-purple', text: 'text-neon-purple', shadow: 'shadow-[0_0_20px_rgba(168,85,247,0.4)]' },
     { id: 'math', title: 'Matematik Hızı', icon: <Calculator className="w-8 h-8" />, color: 'neon-red', border: 'border-neon-red', text: 'text-neon-red', shadow: 'shadow-[0_0_20px_rgba(255,0,60,0.4)]' },
+    { id: 'coop', title: 'Siber Sızma (Co-Op)', icon: <ShieldAlert className="w-8 h-8" />, color: 'neon-green', border: 'border-neon-green', text: 'text-neon-green', shadow: 'shadow-[0_0_20px_rgba(0,255,102,0.4)]' },
   ];
 
   const xpToNext = (profile?.level || 1) * 100;
   const xpPercent = Math.min(100, Math.floor(((profile?.xp || 0) / xpToNext) * 100));
+  const isAuthenticated = profile?.isAuthenticated;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-bg-dark text-white p-4 relative z-10">
@@ -20,16 +22,25 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="text-center max-w-3xl w-full"
+        className="text-center max-w-4xl w-full"
       >
         {/* Profil Bar */}
         <motion.div
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.2 }}
-          className="flex items-center justify-between bg-bg-card rounded-xl p-3 mb-8 border border-gray-700"
+          className="flex flex-col md:flex-row items-center justify-between bg-bg-card rounded-xl p-3 mb-8 border border-gray-700 gap-4"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            {isAuthenticated ? (
+              <div className="bg-neon-green/20 text-neon-green px-3 py-1.5 rounded-lg font-bold text-sm border border-neon-green">
+                {profile?.name}
+              </div>
+            ) : (
+              <button onClick={onOpenAuth} className="bg-neon-blue hover:bg-blue-600 text-white px-4 py-1.5 rounded-lg font-bold text-sm cursor-pointer shadow-[0_0_10px_rgba(0,240,255,0.4)]">
+                Giriş Yap / Kayıt Ol
+              </button>
+            )}
             <div className="bg-gray-800 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-neon-blue" />
               <span className="font-black text-sm">LV.{profile?.level || 1}</span>
@@ -45,19 +56,26 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
             <div className="flex items-center gap-1.5 bg-gray-800 rounded-lg px-3 py-1.5">
               <Coins className="w-4 h-4 text-neon-gold" />
               <span className="font-bold text-neon-gold text-sm">{profile?.coins || 0}</span>
             </div>
             <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={onOpenShop}
+              whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={onOpenShop}
               className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-600 cursor-pointer"
             >
               <ShoppingBag className="w-5 h-5 text-neon-blue" />
             </motion.button>
+            {isAuthenticated && (
+              <motion.button
+                whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={onLogout}
+                className="p-2 rounded-lg bg-red-900/30 hover:bg-red-900/50 border border-red-800 cursor-pointer text-red-500"
+                title="Çıkış Yap"
+              >
+                <LogOut className="w-5 h-5" />
+              </motion.button>
+            )}
           </div>
         </motion.div>
 
@@ -74,7 +92,7 @@ export default function LoadingScreen({ isMatching, onStart, profile, onOpenShop
         ) : (
           <div className="flex flex-col gap-8 items-center mt-8">
             <h2 className="text-2xl text-gray-400 font-bold">Oyun Modunu Seçin</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
               {modes.map(mode => {
                 const isSelected = selectedMode === mode.id;
                 return (

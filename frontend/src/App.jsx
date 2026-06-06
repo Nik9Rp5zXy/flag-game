@@ -2,72 +2,73 @@ import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import LoadingScreen from './components/LoadingScreen';
 import GameArena from './components/GameArena';
+import CoopArena from './components/CoopArena';
 import GameSummary from './components/GameSummary';
 import LevelUpOverlay from './components/LevelUpOverlay';
 import Shop from './components/Shop';
+import AuthScreen from './components/AuthScreen';
 import { playSound, startBgMusic } from './utils/soundManager';
 
 const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:5000';
 
 function App() {
-  // ── Core State ──
   const [socket, setSocket] = useState(null);
   const [gameState, setGameState] = useState('menu');
   const [roomId, setRoomId] = useState(null);
   const [players, setPlayers] = useState([]);
   const [myId, setMyId] = useState(null);
+  const [gameMode, setGameMode] = useState('flag');
+  
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [damagedPlayerId, setDamagedPlayerId] = useState(null);
 
-  // ── Emotes ──
+  // Coop State
+  const [coopPhase, setCoopPhase] = useState(0);
+  const [coopHint, setCoopHint] = useState('');
+  const [coopCommandHint, setCoopCommandHint] = useState('');
+
   const [activeEmotes, setActiveEmotes] = useState([]);
 
-  // ── Progression ──
+  // Auth & Profile
+  const [token, setToken] = useState(() => localStorage.getItem('minigame_token'));
   const [profile, setProfile] = useState(() => {
     try {
       const saved = localStorage.getItem('minigame_profile');
-      return saved ? JSON.parse(saved) : { level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {} };
-    } catch { return { level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {} }; }
+      return saved ? JSON.parse(saved) : { level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {}, isAuthenticated: false };
+    } catch { return { level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {}, isAuthenticated: false }; }
   });
+  
   const [gameSummaryStats, setGameSummaryStats] = useState(null);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [newLevel, setNewLevel] = useState(1);
 
-  // ── UI Overlays ──
   const [showShop, setShowShop] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
   const [afkWarning, setAfkWarning] = useState(false);
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
 
-  // Profili localStorage'a kaydet
   useEffect(() => {
     localStorage.setItem('minigame_profile', JSON.stringify(profile));
   }, [profile]);
 
-  // ── Socket Bağlantısı ──
   useEffect(() => {
-    const newSocket = io(SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000
-    });
+    if (token) localStorage.setItem('minigame_token', token);
+    else localStorage.removeItem('minigame_token');
+  }, [token]);
+
+  useEffect(() => {
+    const newSocket = io(SOCKET_URL, { reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000 });
     setSocket(newSocket);
 
-    newSocket.on('connect', () => {
-      console.log('[Socket] Bağlandı:', newSocket.id);
-      setMyId(newSocket.id);
-    });
+    newSocket.on('connect', () => { setMyId(newSocket.id); });
 
-    // ── PROFILE UPDATE ──
     newSocket.on('profile_update', (data) => {
-      setProfile(prev => {
-        const updated = { ...prev, ...data };
-        return updated;
-      });
+      setProfile(prev => ({ ...prev, ...data }));
     });
 
-    // ── MATCH FOUND ──
     newSocket.on('match_found', (data) => {
       setRoomId(data.roomId);
+      setGameMode(data.gameMode);
       setPlayers(data.players);
       setGameState('playing');
       setAfkWarning(false);
@@ -75,33 +76,21 @@ function App() {
       startBgMusic();
     });
 
-    // ── NEW QUESTION ──
+    // CLASSIC GAME EVENTS
     newSocket.on('new_question', (question) => {
       setCurrentQuestion(question);
       setDamagedPlayerId(null);
       setAfkWarning(false);
       playSound('slam');
     });
-
-    // ── ANSWER RESULT ──
     newSocket.on('answer_result', (data) => {
       if (data.isCorrect) {
-        if (data.playerId === newSocket.id) {
-          playSound('correct');
-        }
+        if (data.playerId === newSocket.id) playSound('correct');
         playSound('damage');
-
-        if (data.players) {
-          setPlayers(data.players);
-        }
-
+        if (data.players) setPlayers(data.players);
         const hitId = data.players?.find(p => p.id !== data.playerId)?.id;
         setDamagedPlayerId(hitId);
-
-        // Kombo ses efekti
-        if (data.combo > 1 && data.playerId === newSocket.id) {
-          playSound('combo');
-        }
+        if (data.combo > 1 && data.playerId === newSocket.id) playSound('combo');
       } else {
         if (data.playerId === newSocket.id) {
           playSound('wrong');
@@ -111,37 +100,37 @@ function App() {
       }
     });
 
-    // ── TIME UP ──
-    newSocket.on('time_up', (data) => {
-      setDamagedPlayerId(null);
-      // Süre doldu sesi eklenebilir
+    // COOP GAME EVENTS
+    newSocket.on('coop_new_phase', (data) => {
+      setCoopPhase(data.phase);
+      setCoopHint(data.hint);
+      setCoopCommandHint(data.commandHint);
+      playSound('slam');
+    });
+    newSocket.on('coop_success', (data) => {
+      playSound('correct');
+    });
+    newSocket.on('coop_terminal_error', (data) => {
+      playSound('wrong');
+      // could show an error log in CoopArena directly, but it relies on local state, we'll let CoopArena handle its own log or ignore for now
+    });
+    newSocket.on('coop_receive_ping', (data) => {
+      playSound('tick'); // Or a ping sound
+      // Handle showing ping message... handled by triggering a fake emote or similar
+    });
+    newSocket.on('coop_failed', (data) => {
+      // Return to menu with alert
+      alert(`GÖREV BAŞARISIZ: ${data.reason}`);
+      setGameState('menu');
     });
 
-    // ── ON FIRE / FIRE OFF ──
-    newSocket.on('on_fire', (data) => {
-      playSound('fire');
-    });
+    // COMMON EVENTS
+    newSocket.on('time_up', () => setDamagedPlayerId(null));
+    newSocket.on('on_fire', () => playSound('fire'));
+    newSocket.on('afk_warning', () => { setAfkWarning(true); playSound('tick'); });
+    newSocket.on('opponent_disconnected_waiting', () => setOpponentDisconnected(true));
+    newSocket.on('opponent_reconnected', () => setOpponentDisconnected(false));
 
-    newSocket.on('fire_off', () => {
-      // Sessiz geçiş
-    });
-
-    // ── AFK WARNING ──
-    newSocket.on('afk_warning', () => {
-      setAfkWarning(true);
-      playSound('tick');
-    });
-
-    // ── OPPONENT DISCONNECT/RECONNECT ──
-    newSocket.on('opponent_disconnected_waiting', () => {
-      setOpponentDisconnected(true);
-    });
-
-    newSocket.on('opponent_reconnected', () => {
-      setOpponentDisconnected(false);
-    });
-
-    // ── GAME SUMMARY (replaces game_over) ──
     newSocket.on('game_summary', (data) => {
       setGameSummaryStats(data.yourStats);
       setGameState('game_summary');
@@ -149,53 +138,27 @@ function App() {
       setAfkWarning(false);
       setOpponentDisconnected(false);
 
-      // Profili güncelle
-      setProfile(prev => ({
-        ...prev,
-        level: data.yourStats.newLevel,
-        xp: data.yourStats.newXp,
-        coins: data.yourStats.newCoins
-      }));
-
-      // Level up overlay
+      setProfile(prev => ({ ...prev, level: data.yourStats.newLevel, xp: data.yourStats.newXp, coins: data.yourStats.newCoins }));
       if (data.yourStats.levelUp) {
         setNewLevel(data.yourStats.newLevel);
-        setTimeout(() => {
-          setShowLevelUp(true);
-          playSound('levelup');
-        }, 1500);
+        setTimeout(() => { setShowLevelUp(true); playSound('levelup'); }, 1500);
       }
     });
 
-    // ── RECONNECT ──
-    newSocket.on('reconnected', (data) => {
-      setRoomId(data.roomId);
-      setPlayers(data.players);
-      setCurrentQuestion(data.currentQuestion);
-      setGameState('playing');
-      setOpponentDisconnected(false);
-    });
-
-    newSocket.on('reconnect_failed', () => {
-      setGameState('menu');
-    });
-
-    // ── Emote ──
-    newSocket.on('receive_emote', (data) => {
-      triggerEmote(data.senderId, data.emote);
-    });
+    newSocket.on('receive_emote', (data) => triggerEmote(data.senderId, data.emote));
 
     return () => newSocket.close();
   }, []);
 
-  // ── Handlers ──
   const handleStartMatchmaking = useCallback((selectedMode) => {
+    // If not authenticated and not guest, maybe force auth? We have guest mode though.
     setGameState('matching');
     socket.emit('find_match', {
-      playerName: `Player_${Math.floor(Math.random() * 9000) + 1000}`,
-      gameMode: selectedMode
+      playerName: profile.isAuthenticated ? profile.name : `Misafir_${Math.floor(Math.random() * 9000) + 1000}`,
+      gameMode: selectedMode,
+      token: token
     });
-  }, [socket]);
+  }, [socket, profile, token]);
 
   const handleAnswer = useCallback((answerId) => {
     socket.emit('submit_answer', { roomId, answerId });
@@ -209,38 +172,34 @@ function App() {
   const triggerEmote = (senderId, emote) => {
     const emoteObj = { id: Date.now() + Math.random(), senderId, emote };
     setActiveEmotes(prev => [...prev, emoteObj]);
-    setTimeout(() => {
-      setActiveEmotes(prev => prev.filter(e => e.id !== emoteObj.id));
-    }, 2500);
+    setTimeout(() => { setActiveEmotes(prev => prev.filter(e => e.id !== emoteObj.id)); }, 2500);
   };
 
   const handleBackToMenu = useCallback(() => {
     setGameState('menu');
-    setGameSummaryStats(null);
-    setCurrentQuestion(null);
-    setPlayers([]);
-    setRoomId(null);
-    setDamagedPlayerId(null);
+    setGameSummaryStats(null); setCurrentQuestion(null); setPlayers([]); setRoomId(null); setDamagedPlayerId(null);
   }, []);
 
-  // ── Render ──
+  const handleLoginSuccess = (data) => {
+    setToken(data.token);
+    setProfile(prev => ({
+      ...prev,
+      isAuthenticated: true,
+      name: data.username,
+      level: data.level, xp: data.xp, coins: data.coins,
+      ownedItems: data.ownedItems, equippedItems: data.equippedItems
+    }));
+    setShowAuth(false);
+  };
 
-  // Level Up Overlay (herhangi bir durumda gösterilebilir)
-  const levelUpOverlay = showLevelUp && (
-    <LevelUpOverlay
-      level={newLevel}
-      onComplete={() => setShowLevelUp(false)}
-    />
-  );
+  const handleLogout = () => {
+    setToken(null);
+    setProfile({ level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {}, isAuthenticated: false });
+  };
 
-  // Shop Overlay
-  const shopOverlay = showShop && (
-    <Shop
-      profile={profile}
-      socketId={myId}
-      onClose={() => setShowShop(false)}
-    />
-  );
+  const levelUpOverlay = showLevelUp && <LevelUpOverlay level={newLevel} onComplete={() => setShowLevelUp(false)} />;
+  const shopOverlay = showShop && <Shop profile={profile} socketId={myId} onClose={() => setShowShop(false)} />;
+  const authOverlay = showAuth && <AuthScreen onLoginSuccess={handleLoginSuccess} onGuestPlay={() => setShowAuth(false)} onClose={() => setShowAuth(false)} />;
 
   if (gameState === 'menu' || gameState === 'matching') {
     return (
@@ -250,19 +209,33 @@ function App() {
           onStart={handleStartMatchmaking}
           profile={profile}
           onOpenShop={() => setShowShop(true)}
+          onLogout={handleLogout}
+          onOpenAuth={() => setShowAuth(true)}
         />
         {shopOverlay}
+        {authOverlay}
         {levelUpOverlay}
       </>
     );
   }
 
   if (gameState === 'game_summary') {
+    return <><GameSummary stats={gameSummaryStats} onBackToMenu={handleBackToMenu} />{levelUpOverlay}</>;
+  }
+
+  if (gameMode === 'coop') {
     return (
       <>
-        <GameSummary
-          stats={gameSummaryStats}
-          onBackToMenu={handleBackToMenu}
+        <CoopArena
+          players={players}
+          myId={myId}
+          currentPhase={coopPhase}
+          currentHint={coopHint}
+          commandHint={coopCommandHint}
+          onCommandSubmit={handleAnswer}
+          onPing={(msg) => socket.emit('coop_ping', { roomId, message: msg })}
+          afkWarning={afkWarning}
+          opponentDisconnected={opponentDisconnected}
         />
         {levelUpOverlay}
       </>
@@ -272,15 +245,10 @@ function App() {
   return (
     <>
       <GameArena
-        players={players}
-        myId={myId}
-        currentQuestion={currentQuestion}
-        damagedPlayerId={damagedPlayerId}
-        activeEmotes={activeEmotes}
-        onAnswer={handleAnswer}
-        onSendEmote={handleSendEmote}
-        afkWarning={afkWarning}
-        opponentDisconnected={opponentDisconnected}
+        players={players} myId={myId} currentQuestion={currentQuestion}
+        damagedPlayerId={damagedPlayerId} activeEmotes={activeEmotes}
+        onAnswer={handleAnswer} onSendEmote={handleSendEmote}
+        afkWarning={afkWarning} opponentDisconnected={opponentDisconnected}
       />
       {levelUpOverlay}
     </>
