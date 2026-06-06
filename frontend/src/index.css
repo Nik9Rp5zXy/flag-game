@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -9,8 +10,6 @@
   --color-neon-purple: #a855f7;
   --color-neon-gold: #facc15;
 }
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
 
 body {
   background-color: var(--color-bg-dark);
