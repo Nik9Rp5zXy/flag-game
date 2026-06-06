@@ -1,0 +1,54 @@
+[
+  {
+    "id": "frame_gold",
+    "name": "Altın Çerçeve",
+    "category": "frame",
+    "price": 200,
+    "description": "Profilinizi altın renkli parlak bir çerçeveyle süsleyin.",
+    "cssClass": "ring-4 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]"
+  },
+  {
+    "id": "frame_diamond",
+    "name": "Elmas Çerçeve",
+    "category": "frame",
+    "price": 500,
+    "description": "Nadir bulunan elmas parıltılı çerçeve.",
+    "cssClass": "ring-4 ring-cyan-300 shadow-[0_0_20px_rgba(103,232,249,0.7)]"
+  },
+  {
+    "id": "frame_fire",
+    "name": "Ateş Çerçevesi",
+    "category": "frame",
+    "price": 350,
+    "description": "Alev alev yanan korkutucu çerçeve.",
+    "cssClass": "ring-4 ring-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.7)]"
+  },
+  {
+    "id": "effect_shockwave",
+    "name": "Şok Dalgası Efekti",
+    "category": "effect",
+    "price": 300,
+    "description": "Doğru cevap verdiğinizde şok dalgası yayılır."
+  },
+  {
+    "id": "effect_lightning",
+    "name": "Yıldırım Efekti",
+    "category": "effect",
+    "price": 400,
+    "description": "Doğru cevap verdiğinizde yıldırım çakar."
+  },
+  {
+    "id": "sound_retro",
+    "name": "Retro Ses Paketi",
+    "category": "sound",
+    "price": 250,
+    "description": "8-bit tarzı nostaljik oyun sesleri."
+  },
+  {
+    "id": "sound_cyberpunk",
+    "name": "Cyberpunk Ses Paketi",
+    "category": "sound",
+    "price": 450,
+    "description": "Gelecekten gelen neon sesleri."
+  }
+]
