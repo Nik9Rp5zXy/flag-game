@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, Shield, Flame } from 'lucide-react';
 
 export default function PlayerCard({ player, isMe, isDamaged }) {

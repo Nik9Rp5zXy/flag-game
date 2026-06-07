@@ -127,8 +127,23 @@ const playerProfiles = new Map();    // socketId -> session profile
 const disconnectedPlayers = new Map(); // socketId -> timeout details
 const rateLimitMap = new Map();      
 const typingUsers = new Set();
-const globalChatHistory = [];
 const MAX_CHAT_HISTORY = 50;
+let globalChatHistory = [];
+try {
+  const rows = db.prepare('SELECT * FROM messages ORDER BY time ASC LIMIT ?').all(MAX_CHAT_HISTORY);
+  globalChatHistory = rows.map(r => ({
+    id: r.id,
+    sender: r.sender,
+    text: r.text,
+    level: r.level,
+    role: r.role,
+    replyTo: r.replyTo,
+    reactions: JSON.parse(r.reactions || '{}'),
+    time: r.time
+  }));
+} catch(e) {
+  console.error("Chat gecmisi yuklenirken hata:", e);
+}
 
 setInterval(() => {
   const counts = {
@@ -570,8 +585,23 @@ io.on('connection', (socket) => {
       reactions: {}, // { "👍": 2, "😂": 1 }
       time: Date.now()
     };
+    
+    try {
+        db.prepare(`
+          INSERT INTO messages (id, sender, text, level, role, replyTo, reactions, time)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(msg.id, msg.sender, msg.text, msg.level, msg.role, msg.replyTo, JSON.stringify(msg.reactions), msg.time);
+    } catch(e) {
+        console.error("Mesaj DB'ye kaydedilemedi:", e);
+    }
+
     globalChatHistory.push(msg);
-    if (globalChatHistory.length > MAX_CHAT_HISTORY) globalChatHistory.shift();
+    if (globalChatHistory.length > MAX_CHAT_HISTORY) {
+       const removed = globalChatHistory.shift();
+       try {
+           db.prepare('DELETE FROM messages WHERE id = ?').run(removed.id);
+       } catch(e) {}
+    }
     io.emit('new_global_message', msg);
   });
 
@@ -581,6 +611,9 @@ io.on('connection', (socket) => {
         const index = globalChatHistory.findIndex(m => m.id === msgId);
         if (index !== -1) {
            globalChatHistory.splice(index, 1);
+           try {
+               db.prepare('DELETE FROM messages WHERE id = ?').run(msgId);
+           } catch(e) {}
            io.emit('global_message_deleted', msgId);
         }
      }
@@ -594,6 +627,9 @@ io.on('connection', (socket) => {
      const msg = globalChatHistory.find(m => m.id === msgId);
      if (msg) {
         msg.reactions[emoji] = (msg.reactions[emoji] || 0) + 1;
+        try {
+            db.prepare('UPDATE messages SET reactions = ? WHERE id = ?').run(JSON.stringify(msg.reactions), msgId);
+        } catch(e) {}
         io.emit('global_message_reacted', { msgId, reactions: msg.reactions });
      }
   });

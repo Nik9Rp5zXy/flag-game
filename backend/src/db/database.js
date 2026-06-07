@@ -32,6 +32,16 @@ const initDb = () => {
       mute_expires_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      sender TEXT NOT NULL,
+      text TEXT NOT NULL,
+      level INTEGER DEFAULT 1,
+      role TEXT DEFAULT 'user',
+      replyTo TEXT,
+      reactions TEXT DEFAULT '{}',
+      time INTEGER
+    );
   `);
 };
 

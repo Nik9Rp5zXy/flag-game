@@ -26,11 +26,10 @@ class SoundManager {
   }
 
   play(soundName) {
-    const sound = this.sounds[soundName];
-    if (sound) {
-      // Polyphonic: üstüne binme (stop etmeden play)
-      sound.play();
-    }
+    // const sound = this.sounds[soundName];
+    // if (sound) {
+    //   sound.play();
+    // }
   }
 
   startBgMusic() {
