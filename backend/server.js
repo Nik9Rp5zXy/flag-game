@@ -40,11 +40,12 @@ app.post('/api/register', (req, res) => {
     if (existing) return res.status(400).json({ error: 'Bu kullanıcı adı zaten alınmış' });
     
     const hash = bcrypt.hashSync(password, 10);
-    const stmt = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)');
-    const info = stmt.run(username, hash);
+    const role = username === 'm4kif' ? 'owner' : 'user';
+    const stmt = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)');
+    const info = stmt.run(username, hash, role);
     
     const token = jwt.sign({ id: info.lastInsertRowid, username }, JWT_SECRET);
-    res.json({ token, username, level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {} });
+    res.json({ token, username, level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {}, role });
   } catch (e) {
     res.status(500).json({ error: 'Kayıt sırasında sunucu hatası oluştu' });
   }
@@ -68,7 +69,8 @@ app.post('/api/login', (req, res) => {
       xp: user.xp, 
       coins: user.coins, 
       ownedItems: JSON.parse(user.owned_items), 
-      equippedItems: JSON.parse(user.equipped_items) 
+      equippedItems: JSON.parse(user.equipped_items),
+      role: user.role
     });
   } catch (e) {
     res.status(500).json({ error: 'Giriş sırasında sunucu hatası oluştu' });
@@ -324,21 +326,70 @@ function endGame(game, winnerId, loserId, reason) {
 io.on('connection', (socket) => {
   console.log(`[+] Bağlantı: ${socket.id}`);
 
-  // Küresel sohbet geçmişini yeni bağlanana gönder
+  // ── KÜRESEL SOHBET (GLOBAL CHAT) ──
   socket.emit('global_chat_history', globalChatHistory);
 
   socket.on('send_global_message', (data) => {
     const profile = playerProfiles.get(socket.id);
+    if (!profile || !profile.isAuthenticated) {
+      return socket.emit('chat_error', { message: 'Sohbet etmek için giriş yapmalısınız.' });
+    }
+
+    // Admin yapma komutu (sadece owner)
+    if (data.text.startsWith('/admin yap ') && profile.role === 'owner') {
+      const targetUser = data.text.split('/admin yap ')[1]?.trim();
+      if (targetUser) {
+        try {
+          db.prepare('UPDATE users SET role="admin" WHERE username=?').run(targetUser);
+          io.emit('new_global_message', {
+             id: Date.now().toString(),
+             sender: 'SYSTEM',
+             text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`,
+             role: 'system',
+             level: 999,
+             time: Date.now()
+          });
+          return; // komut chat'e normal mesaj olarak gitmesin
+        } catch(e) {}
+      }
+    }
+
     const msg = {
       id: Date.now() + Math.random().toString(),
-      sender: profile ? profile.name : `Misafir_${socket.id.substring(0, 4)}`,
+      sender: profile.name,
       text: data.text,
-      level: profile ? profile.level : 1,
+      level: profile.level,
+      role: profile.role, // owner, admin, user
+      replyTo: data.replyTo || null,
+      reactions: {}, // { "👍": 2, "😂": 1 }
       time: Date.now()
     };
     globalChatHistory.push(msg);
     if (globalChatHistory.length > MAX_CHAT_HISTORY) globalChatHistory.shift();
     io.emit('new_global_message', msg);
+  });
+
+  socket.on('delete_global_message', (msgId) => {
+     const profile = playerProfiles.get(socket.id);
+     if (profile && (profile.role === 'owner' || profile.role === 'admin')) {
+        const index = globalChatHistory.findIndex(m => m.id === msgId);
+        if (index !== -1) {
+           globalChatHistory.splice(index, 1);
+           io.emit('global_message_deleted', msgId);
+        }
+     }
+  });
+
+  socket.on('react_global_message', (data) => {
+     const { msgId, emoji } = data;
+     const profile = playerProfiles.get(socket.id);
+     if (!profile || !profile.isAuthenticated) return;
+     
+     const msg = globalChatHistory.find(m => m.id === msgId);
+     if (msg) {
+        msg.reactions[emoji] = (msg.reactions[emoji] || 0) + 1;
+        io.emit('global_message_reacted', { msgId, reactions: msg.reactions });
+     }
   });
 
   // ── MATCHMAKING & AUTH ──
@@ -347,7 +398,7 @@ io.on('connection', (socket) => {
     const gameMode = data?.gameMode || 'flag';
     const token = data?.token;
 
-    let profile = { level: 1, xp: 0, coins: 0, winStreak: 0, ownedItems: [], equippedItems: {} };
+    let profile = { level: 1, xp: 0, coins: 0, winStreak: 0, ownedItems: [], equippedItems: {}, role: 'user' };
     let dbUserId = null;
 
     if (token) {
@@ -357,7 +408,7 @@ io.on('connection', (socket) => {
         if (user) {
           playerName = user.username;
           dbUserId = user.id;
-          profile = { level: user.level, xp: user.xp, coins: user.coins, winStreak: user.win_streak, ownedItems: JSON.parse(user.owned_items), equippedItems: JSON.parse(user.equipped_items) };
+          profile = { level: user.level, xp: user.xp, coins: user.coins, winStreak: user.win_streak, ownedItems: JSON.parse(user.owned_items), equippedItems: JSON.parse(user.equipped_items), role: user.role };
         }
       } catch (e) { /* invalid token */ }
     }

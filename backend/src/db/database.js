@@ -27,6 +27,7 @@ const initDb = () => {
       win_streak INTEGER DEFAULT 0,
       owned_items TEXT DEFAULT '[]', -- JSON string
       equipped_items TEXT DEFAULT '{}', -- JSON string
+      role TEXT DEFAULT 'user',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
