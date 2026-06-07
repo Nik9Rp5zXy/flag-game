@@ -28,6 +28,8 @@ const initDb = () => {
       owned_items TEXT DEFAULT '[]', -- JSON string
       equipped_items TEXT DEFAULT '{}', -- JSON string
       role TEXT DEFAULT 'user',
+      is_banned BOOLEAN DEFAULT 0,
+      mute_expires_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);

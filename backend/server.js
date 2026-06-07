@@ -57,6 +57,10 @@ app.post('/api/login', (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     if (!user) return res.status(400).json({ error: 'Kullanıcı bulunamadı' });
     
+    if (user.is_banned) {
+      return res.status(403).json({ error: 'Bu hesap sunucudan kalıcı olarak uzaklaştırılmıştır.' });
+    }
+
     if (!bcrypt.compareSync(password, user.password_hash)) {
       return res.status(400).json({ error: 'Hatalı şifre' });
     }
@@ -326,6 +330,30 @@ function endGame(game, winnerId, loserId, reason) {
 io.on('connection', (socket) => {
   console.log(`[+] Bağlantı: ${socket.id}`);
 
+  // ── AUTHENTICATE EVENTI (SYNC BUG FIX) ──
+  socket.on('authenticate', (token) => {
+    if (!token) return;
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+      if (user && !user.is_banned) {
+         playerProfiles.set(socket.id, {
+            name: user.username,
+            dbUserId: user.id,
+            level: user.level,
+            xp: user.xp,
+            coins: user.coins,
+            winStreak: user.win_streak,
+            ownedItems: JSON.parse(user.owned_items),
+            equippedItems: JSON.parse(user.equipped_items),
+            role: user.role,
+            isAuthenticated: true,
+            muteExpiresAt: user.mute_expires_at
+         });
+      }
+    } catch(e) {}
+  });
+
   // ── KÜRESEL SOHBET (GLOBAL CHAT) ──
   socket.emit('global_chat_history', globalChatHistory);
 
@@ -335,23 +363,61 @@ io.on('connection', (socket) => {
       return socket.emit('chat_error', { message: 'Sohbet etmek için giriş yapmalısınız.' });
     }
 
-    // Admin yapma komutu (sadece owner)
+    if (profile.muteExpiresAt && new Date(profile.muteExpiresAt).getTime() > Date.now()) {
+      return socket.emit('chat_error', { message: 'Sohbetten geçici olarak susturuldunuz.' });
+    }
+
+    // MODERASYON KOMUTLARI
     if (data.text.startsWith('/admin yap ') && profile.role === 'owner') {
       const targetUser = data.text.split('/admin yap ')[1]?.trim();
       if (targetUser) {
         try {
           db.prepare('UPDATE users SET role="admin" WHERE username=?').run(targetUser);
-          io.emit('new_global_message', {
-             id: Date.now().toString(),
-             sender: 'SYSTEM',
-             text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`,
-             role: 'system',
-             level: 999,
-             time: Date.now()
-          });
-          return; // komut chat'e normal mesaj olarak gitmesin
+          io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`, role: 'system', level: 999, time: Date.now() });
         } catch(e) {}
       }
+      return;
+    }
+
+    if (data.text.startsWith('/admin kaldir ') && profile.role === 'owner') {
+      const targetUser = data.text.split('/admin kaldir ')[1]?.trim();
+      if (targetUser) {
+        try {
+          db.prepare('UPDATE users SET role="user" WHERE username=?').run(targetUser);
+          io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisinin yetkilerini aldı.`, role: 'system', level: 999, time: Date.now() });
+        } catch(e) {}
+      }
+      return;
+    }
+
+    if (data.text.startsWith('/ban ') && (profile.role === 'owner' || profile.role === 'admin')) {
+      const targetUser = data.text.split('/ban ')[1]?.trim();
+      if (targetUser && targetUser !== 'm4kif') {
+        try {
+          db.prepare('UPDATE users SET is_banned=1 WHERE username=?').run(targetUser);
+          io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `🔨 ${targetUser} sunucudan kalıcı olarak yasaklandı!`, role: 'system', level: 999, time: Date.now() });
+        } catch(e) {}
+      }
+      return;
+    }
+
+    if (data.text.startsWith('/mute ') && (profile.role === 'owner' || profile.role === 'admin')) {
+      const parts = data.text.split(' ');
+      const targetUser = parts[1];
+      const minutes = parseInt(parts[2]) || 10;
+      if (targetUser && targetUser !== 'm4kif') {
+        try {
+          const expireTime = new Date(Date.now() + minutes * 60000).toISOString();
+          db.prepare('UPDATE users SET mute_expires_at=? WHERE username=?').run(expireTime, targetUser);
+          io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `🔇 ${targetUser}, ${minutes} dakika boyunca susturuldu.`, role: 'system', level: 999, time: Date.now() });
+          
+          // Eger socket'i aktifse profile'ini de güncelle
+          for (let [sId, p] of playerProfiles.entries()) {
+             if (p.name === targetUser) p.muteExpiresAt = expireTime;
+          }
+        } catch(e) {}
+      }
+      return;
     }
 
     const msg = {

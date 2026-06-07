@@ -104,19 +104,25 @@ export default function GlobalChat({ socket, profile }) {
   return (
     <>
       {/* Swipe Overlay & Tab */}
-      <div 
-        className="fixed left-0 inset-y-0 w-8 z-50 flex items-center justify-center cursor-pointer group pointer-events-auto"
-        onClick={() => setIsOpen(true)}
-      >
-        <div className="absolute left-0 w-1.5 h-32 bg-neon-blue/30 group-hover:bg-neon-blue/80 rounded-r-full transition-all shadow-[0_0_10px_rgba(0,240,255,0.5)] flex items-center justify-center">
-          <ChevronRight className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity absolute -right-4" />
-        </div>
-        {unread > 0 && !isOpen && (
-          <div className="absolute top-1/2 -mt-16 left-2 bg-red-600 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center animate-bounce shadow-lg">
-            {unread > 9 ? '9+' : unread}
+      {!isOpen && (
+        <motion.div 
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.1}
+          onDragEnd={(e, info) => { if (info.offset.x > 30) setIsOpen(true); }}
+          className="fixed left-0 inset-y-0 w-8 z-50 flex items-center justify-center cursor-pointer group pointer-events-auto"
+          onClick={() => setIsOpen(true)}
+        >
+          <div className="absolute left-0 w-1.5 h-32 bg-neon-blue/30 group-hover:bg-neon-blue/80 rounded-r-full transition-all shadow-[0_0_10px_rgba(0,240,255,0.5)] flex items-center justify-center">
+            <ChevronRight className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity absolute -right-4" />
           </div>
-        )}
-      </div>
+          {unread > 0 && (
+            <div className="absolute top-1/2 -mt-16 left-2 bg-red-600 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center animate-bounce shadow-lg">
+              {unread > 9 ? '9+' : unread}
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* Drawer */}
       <AnimatePresence>

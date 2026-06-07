@@ -61,7 +61,10 @@ function App() {
     const newSocket = io(SOCKET_URL, { reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000 });
     setSocket(newSocket);
 
-    newSocket.on('connect', () => { setMyId(newSocket.id); });
+    newSocket.on('connect', () => { 
+      setMyId(newSocket.id); 
+      if (token) newSocket.emit('authenticate', token);
+    });
 
     newSocket.on('profile_update', (data) => {
       setProfile(prev => ({ ...prev, ...data }));
