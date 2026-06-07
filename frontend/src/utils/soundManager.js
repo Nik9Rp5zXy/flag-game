@@ -3,24 +3,19 @@ import { Howl } from 'howler';
 class SoundManager {
   constructor() {
     this.sounds = {
-      slam: new Howl({ src: ['https://actions.google.com/sounds/v1/impacts/crash.ogg'], volume: 0.8, preload: true }),
-      correct: new Howl({ src: ['https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg'], volume: 0.7, preload: true }),
-      wrong: new Howl({ src: ['https://actions.google.com/sounds/v1/alarms/buzzer_alarm.ogg'], volume: 0.8, preload: true }),
-      damage: new Howl({ src: ['https://actions.google.com/sounds/v1/impacts/wood_hit_metal.ogg'], volume: 0.7, preload: true }),
-      levelup: new Howl({ src: ['https://actions.google.com/sounds/v1/cartoon/siren_whistle.ogg'], volume: 0.9, preload: true }),
-      combo: new Howl({ src: ['https://actions.google.com/sounds/v1/cartoon/pop.ogg'], volume: 0.6, preload: true }),
-      fire: new Howl({ src: ['https://actions.google.com/sounds/v1/science_fiction/robot_charge.ogg'], volume: 0.7, preload: true }),
-      purchase: new Howl({ src: ['https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg'], volume: 0.7, preload: true }),
-      tick: new Howl({ src: ['https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg'], volume: 0.4, preload: true }),
-      click: new Howl({ src: ['https://actions.google.com/sounds/v1/cartoon/pop.ogg'], volume: 0.3, preload: true }),
+      slam: null,
+      correct: null,
+      wrong: null,
+      damage: null,
+      levelup: null,
+      combo: null,
+      fire: null,
+      purchase: null,
+      tick: null,
+      click: null,
     };
 
-    this.bgMusic = new Howl({
-      src: ['https://actions.google.com/sounds/v1/ambiences/spaceship_ambience.ogg'],
-      volume: 0.15,
-      loop: true,
-      preload: true
-    });
+    this.bgMusic = null;
 
     this.isMusicPlaying = false;
   }
