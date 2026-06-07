@@ -126,6 +126,7 @@ const activeGames = new Map();       // roomId -> GameState
 const playerProfiles = new Map();    // socketId -> session profile
 const disconnectedPlayers = new Map(); // socketId -> timeout details
 const rateLimitMap = new Map();      
+const typingUsers = new Set();
 const globalChatHistory = [];
 const MAX_CHAT_HISTORY = 50;
 
@@ -459,6 +460,17 @@ io.on('connection', (socket) => {
   // ── KÜRESEL SOHBET (GLOBAL CHAT) ──
   socket.emit('global_chat_history', globalChatHistory);
 
+  socket.on('typing', (isTyping) => {
+    const profile = playerProfiles.get(socket.id);
+    if (!profile || !profile.isAuthenticated) return;
+    if (isTyping) {
+      typingUsers.add(profile.name);
+    } else {
+      typingUsers.delete(profile.name);
+    }
+    io.emit('typing_update', Array.from(typingUsers));
+  });
+
   socket.on('send_global_message', (data) => {
     const profile = playerProfiles.get(socket.id);
     if (!profile || !profile.isAuthenticated) {
@@ -468,6 +480,10 @@ io.on('connection', (socket) => {
     if (profile.muteExpiresAt && new Date(profile.muteExpiresAt).getTime() > Date.now()) {
       return socket.emit('chat_error', { message: 'Sohbetten geçici olarak susturuldunuz.' });
     }
+    
+    // Mesaj gönderildiğinde yazıyor durumunu temizle
+    typingUsers.delete(profile.name);
+    io.emit('typing_update', Array.from(typingUsers));
 
     // MODERASYON KOMUTLARI
     if (data.text.startsWith('/admin yap ') && profile.role === 'owner') {
@@ -478,6 +494,7 @@ io.on('connection', (socket) => {
           for (let [sId, p] of playerProfiles.entries()) {
              if (p.name === targetUser) p.role = 'admin';
           }
+          io.emit('role_updated', { username: targetUser, role: 'admin' });
           io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`, role: 'system', level: 999, time: Date.now() });
         } catch(e) {}
       }
@@ -492,6 +509,7 @@ io.on('connection', (socket) => {
           for (let [sId, p] of playerProfiles.entries()) {
              if (p.name === targetUser) p.role = 'user';
           }
+          io.emit('role_updated', { username: targetUser, role: 'user' });
           io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisinin yetkilerini aldı.`, role: 'system', level: 999, time: Date.now() });
         } catch(e) {}
       }

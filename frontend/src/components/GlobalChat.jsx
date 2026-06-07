@@ -10,7 +10,9 @@ export default function GlobalChat({ socket, profile }) {
   const [replyTo, setReplyTo] = useState(null);
   const [activeReactionMsg, setActiveReactionMsg] = useState(null); // which message is open for reactions
   const [activeMsgId, setActiveMsgId] = useState(null); // which message is clicked on mobile
+  const [typingUsers, setTypingUsers] = useState([]);
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const EMOJIS = ['👍', '❤️', '😂', '🔥', '💀', '🎉'];
 
@@ -42,21 +44,43 @@ export default function GlobalChat({ socket, profile }) {
       alert(err.message);
     });
 
+    socket.on('role_updated', ({ username, role }) => {
+      setMessages(prev => prev.map(m => m.sender === username ? { ...m, role } : m));
+    });
+
+    socket.on('typing_update', (users) => {
+      setTypingUsers(users.filter(u => u !== profile?.name));
+    });
+
     return () => {
       socket.off('global_chat_history');
       socket.off('new_global_message');
       socket.off('global_message_deleted');
       socket.off('global_message_reacted');
       socket.off('chat_error');
+      socket.off('role_updated');
+      socket.off('typing_update');
     };
-  }, [socket, isOpen]);
+  }, [socket, isOpen, profile?.name]);
 
   useEffect(() => {
     if (isOpen) {
       setUnread(0);
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, typingUsers]);
+
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    if (!socket) return;
+    
+    socket.emit('typing', true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing', false);
+    }, 2000);
+  };
 
   const handleSend = (e) => {
     e.preventDefault();
@@ -68,6 +92,8 @@ export default function GlobalChat({ socket, profile }) {
     socket.emit('send_global_message', { text: input, replyTo: replyTo ? replyTo.id : null });
     setInput('');
     setReplyTo(null);
+    socket.emit('typing', false);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
   };
 
   const handleDelete = (msgId) => {
@@ -231,6 +257,17 @@ export default function GlobalChat({ socket, profile }) {
                 <div ref={messagesEndRef} className="h-4" />
               </div>
 
+              {/* Typing Indicator */}
+              {typingUsers.length > 0 && (
+                <div className="px-4 pb-2 text-xs text-gray-400 italic">
+                  {typingUsers.length === 1 
+                    ? `${typingUsers[0]} yazıyor...` 
+                    : typingUsers.length === 2 
+                      ? `${typingUsers.join(' ve ')} yazıyor...`
+                      : `${typingUsers.length} kişi yazıyor...`}
+                </div>
+              )}
+
               {/* Input Area */}
               <div className="p-3 border-t border-neon-blue/50 bg-black flex flex-col gap-2">
                 {replyTo && (
@@ -244,7 +281,7 @@ export default function GlobalChat({ socket, profile }) {
                     <input 
                       type="text" 
                       value={input}
-                      onChange={e => setInput(e.target.value)}
+                      onChange={handleInputChange}
                       placeholder="Sohbete katıl..."
                       className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-neon-blue focus:shadow-[0_0_10px_rgba(0,240,255,0.3)] transition-all"
                       maxLength={150}

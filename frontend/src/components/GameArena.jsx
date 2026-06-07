@@ -16,7 +16,22 @@ export default function GameArena({
     setSelectedOption(null);
   }, [currentQuestion]);
 
-  if (!me || !opponent || !currentQuestion) return null;
+  if (!me || !opponent || !currentQuestion) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-bg-dark text-white p-4">
+        <h1 className="text-xl font-bold mb-4 text-red-500">Oyun Yükleniyor veya Bağlantı Bekleniyor...</h1>
+        <pre className="text-xs text-gray-400 bg-gray-900 p-4 rounded text-left overflow-auto max-w-full">
+          DEBUG INFO:
+          myId: {myId}
+          players length: {players?.length}
+          players: {JSON.stringify(players, null, 2)}
+          hasMe: {me ? 'yes' : 'no'}
+          hasOpponent: {opponent ? 'yes' : 'no'}
+          hasCurrentQuestion: {currentQuestion ? 'yes' : 'no'}
+        </pre>
+      </div>
+    );
+  }
 
   const emotes = ['😂', '😡', '🤡', '🚀', '🔥', '💀'];
   const questionKey = currentQuestion?.questionData?.text || currentQuestion?.questionData?.flagUrl || Date.now();
