@@ -239,6 +239,9 @@ export default function GlobalChat({ socket, profile }) {
                                {(profile.role === 'owner' || profile.role === 'admin') && (
                                  <button onClick={() => { handleDelete(msg.id); setActiveMsgId(null); }} className="p-2 hover:text-red-500 text-gray-300 hover:bg-gray-800 rounded" title="Sil"><Trash2 className="w-4 h-4" /></button>
                                )}
+                               {(profile.role === 'owner' && msg.role !== 'admin' && msg.role !== 'owner' && !isMe) && (
+                                 <button onClick={() => { socket.emit('send_global_message', { text: `/admin yap ${msg.sender}` }); setActiveMsgId(null); }} className="p-2 hover:text-yellow-400 text-gray-300 hover:bg-gray-800 rounded" title="Admin Yap">👑</button>
+                               )}
 
                                {/* Emoji Picker Popup */}
                                {activeReactionMsg === msg.id && (

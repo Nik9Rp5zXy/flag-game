@@ -76,6 +76,13 @@ server {
         try_files \\$uri \\$uri/ /index.html;
     }
 
+    # Disable cache for index.html to prevent V8/V9 cache bug
+    location = /index.html {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
     location ~* ^/(api|socket\\.io) {
         proxy_pass http://127.0.0.1:5000;
         proxy_http_version 1.1;

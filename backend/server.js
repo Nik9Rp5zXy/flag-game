@@ -489,14 +489,21 @@ io.on('connection', (socket) => {
     if (data.text.startsWith('/admin yap ') && profile.role === 'owner') {
       const targetUser = data.text.split('/admin yap ')[1]?.trim();
       if (targetUser) {
-        try {
-          db.prepare('UPDATE users SET role="admin" WHERE username=?').run(targetUser);
-          for (let [sId, p] of playerProfiles.entries()) {
-             if (p.name === targetUser) p.role = 'admin';
+          try {
+            const info = db.prepare('UPDATE users SET role="admin" WHERE username=?').run(targetUser);
+            if (info.changes > 0) {
+              for (let [sId, p] of playerProfiles.entries()) {
+                 if (p.name === targetUser) p.role = 'admin';
+              }
+              io.emit('role_updated', { username: targetUser, role: 'admin' });
+              io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`, role: 'system', level: 999, time: Date.now() });
+            } else {
+              socket.emit('chat_error', { message: 'Kullanıcı bulunamadı veya güncellenemedi.' });
+            }
+          } catch(e) {
+            console.error('Admin yapma hatası:', e);
+            socket.emit('chat_error', { message: 'Admin yapma sırasında hata oluştu.' });
           }
-          io.emit('role_updated', { username: targetUser, role: 'admin' });
-          io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`, role: 'system', level: 999, time: Date.now() });
-        } catch(e) {}
       }
       return;
     }
