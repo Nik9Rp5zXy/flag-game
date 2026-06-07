@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [V10.2] - 2026-06-07
+### Fixed
+- Co-Op modunda "Yenilgi" ve "Kazanma" durumlarındaki büyük senkronizasyon (desync) hatası çözüldü. Artık iki oyuncu da eşzamanlı olarak aynı sonuç ekranını (Zafer veya Görev Başarısız) alacak.
+### Changed
+- Co-Op oynanış mantığı 3 aşamaya çıkarılarak zorlaştırıldı. Artık analistin ipuçlarını çözüp (matematik, kelime ters çevirme vb.) Breacher'a iletmesi gerekiyor.
+
 ## [V10.1] - 2026-06-07
 ### Fixed
 - Oyun eşleştiğinde gerçekleşen çökme sorunu `PlayerCard` bileşenine `AnimatePresence` modülü eklenerek çözüldü.

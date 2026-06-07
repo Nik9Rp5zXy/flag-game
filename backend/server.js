@@ -217,14 +217,39 @@ function generateQuestion(gameMode) {
 // CO-OP MECHANICS (CYBER BREACH)
 // ============================================================
 function generateCoopPhase(phase) {
-  const port = Math.floor(Math.random() * 8000) + 1000;
-  const passwords = ['admin', 'root', '1234', 'qwerty', 'system'];
-  const pass = passwords[Math.floor(Math.random() * passwords.length)];
-  
   if (phase === 1) {
-    return { phase, targetPort: port, requiredRegex: new RegExp(`^crack\\s+(-p|--port)\\s+${port}$`, 'i'), timeLimit: 30000, hint: `Hedef Port: ${port}`, commandHint: 'crack -p [PORT]' };
+    const a = Math.floor(Math.random() * 20) + 10;
+    const b = Math.floor(Math.random() * 5) + 2;
+    const port = a * b;
+    return { 
+      phase, 
+      requiredRegex: new RegExp(`^crack\\s+(-p|--port)\\s+${port}$`, 'i'), 
+      timeLimit: 30000, 
+      hint: `Güvenlik Duvarı Aktif! Portu bul: ${a} x ${b} = ?`, 
+      commandHint: 'crack -p [PORT]' 
+    };
+  } else if (phase === 2) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let code = '';
+    for(let i=0; i<4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    const reversed = code.split('').reverse().join('');
+    return { 
+      phase, 
+      requiredRegex: new RegExp(`^breach\\s+${code}$`, 'i'), 
+      timeLimit: 25000, 
+      hint: `Sistem Şifresi Ters Çevrilmiş: ${reversed}`, 
+      commandHint: 'breach [ŞİFRE]' 
+    };
   } else {
-    return { phase, targetPort: port, password: pass, requiredRegex: new RegExp(`^breach\\s+${port}\\s+${pass}$`, 'i'), timeLimit: 20000, hint: `Port: ${port} | Pass: ${pass}`, commandHint: 'breach [PORT] [PASS]' };
+    const colors = ['RED', 'BLUE', 'GREEN', 'BLACK', 'WHITE'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    return { 
+      phase, 
+      requiredRegex: new RegExp(`^override\\s+${color}$`, 'i'), 
+      timeLimit: 15000, 
+      hint: `Son Katman Rengi: ${color} (Bunu yazmalı!)`, 
+      commandHint: 'override [RENK(İngilizce)]' 
+    };
   }
 }
 
@@ -377,15 +402,76 @@ function handleTimeUp(game) {
 
 function handleCoopTimeUp(game) {
   if (!activeGames.has(game.roomId)) return;
-  io.to(game.roomId).emit('coop_failed', { reason: 'Süre doldu! Sistemler kilitlendi.' });
-  setTimeout(() => {
-    activeGames.delete(game.roomId);
-  }, 3000);
+  endGame(game, null, null, 'coop_failed');
 }
 
 function endGame(game, winnerId, loserId, reason) {
   if (game.questionTimer) clearTimeout(game.questionTimer);
   if (game.reconnectTimeout) clearTimeout(game.reconnectTimeout);
+
+  if (game.gameMode === 'coop') {
+     const isVictory = reason === 'coop_victory';
+     const pids = Object.keys(game.players);
+     
+     for (const pid of pids) {
+        const player = game.players[pid];
+        const profile = playerProfiles.get(pid) || {};
+        
+        let xpGained = 0;
+        let coinsGained = 0;
+        
+        if (isVictory) {
+           profile.winStreak = (profile.winStreak || 0) + 1;
+           xpGained = 150 + (player.totalSpeedBonus || 0);
+           coinsGained = 10 + (profile.winStreak || 1);
+        } else {
+           profile.winStreak = 0;
+           xpGained = 20; 
+           coinsGained = 0;
+        }
+        
+        profile.xp = (profile.xp || 0) + xpGained;
+        profile.coins = (profile.coins || 0) + coinsGained;
+        
+        let levelUp = false;
+        while (profile.xp >= xpToNextLevel(profile.level || 1)) {
+           profile.xp -= xpToNextLevel(profile.level || 1);
+           profile.level = (profile.level || 1) + 1;
+           levelUp = true;
+        }
+        
+        if (profile.dbUserId) {
+          db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
+            .run(profile.level, profile.xp, profile.coins, profile.winStreak, profile.dbUserId);
+        }
+        
+        playerProfiles.set(pid, profile);
+        
+        const sock = io.sockets.sockets.get(pid);
+        if (sock) {
+           sock.emit('game_summary', {
+              winnerId: isVictory ? pid : null,
+              loserId: isVictory ? null : pid,
+              reason: reason,
+              yourStats: { 
+                 isWinner: isVictory, 
+                 xpGained, 
+                 coinsGained, 
+                 correctAnswers: player.correctAnswers || 0, 
+                 maxCombo: player.maxCombo || 0, 
+                 newLevel: profile.level, 
+                 newXp: profile.xp, 
+                 newCoins: profile.coins, 
+                 xpToNext: xpToNextLevel(profile.level), 
+                 levelUp, 
+                 winStreak: profile.winStreak 
+              }
+           });
+        }
+     }
+     activeGames.delete(game.roomId);
+     return;
+  }
 
   const winnerPlayer = game.players[winnerId];
   const loserPlayer = game.players[loserId];
@@ -418,7 +504,6 @@ function endGame(game, winnerId, loserId, reason) {
     loserLevelUp = true;
   }
 
-  // UPDATE DATABASE IF LOGGED IN
   if (winnerProfile.dbUserId) {
     db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
       .run(winnerProfile.level, winnerProfile.xp, winnerProfile.coins, winnerProfile.winStreak, winnerProfile.dbUserId);
@@ -739,9 +824,9 @@ io.on('connection', (socket) => {
       if (isCorrect) {
         if (game.questionTimer) clearTimeout(game.questionTimer);
         io.to(roomId).emit('coop_success', { phase: game.currentCoop.phase });
-        if (game.coopPhase >= 2) {
+        if (game.coopPhase >= 3) {
           // Co-op bitti, iki oyuncuya da XP/Coin verelim (basit bir win state)
-          setTimeout(() => endGame(game, socket.id, socket.id, 'coop_victory'), 2000); 
+          setTimeout(() => endGame(game, null, null, 'coop_victory'), 2000);
         } else {
           game.coopPhase += 1;
           setTimeout(() => { if (activeGames.has(game.roomId)) sendNewQuestion(game); }, 2000);

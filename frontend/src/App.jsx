@@ -130,11 +130,6 @@ function App() {
       playSound('tick'); // Or a ping sound
       // Handle showing ping message... handled by triggering a fake emote or similar
     });
-    newSocket.on('coop_failed', (data) => {
-      // Return to menu with alert
-      alert(`GÖREV BAŞARISIZ: ${data.reason}`);
-      setGameState('menu');
-    });
 
     // COMMON EVENTS
     newSocket.on('time_up', () => setDamagedPlayerId(null));

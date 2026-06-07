@@ -25,7 +25,7 @@ export default function GameSummary({ stats, onBackToMenu }) {
               : 'text-neon-red drop-shadow-[0_0_30px_rgba(255,0,60,0.6)]'
               }`}
           >
-            {stats.isWinner ? '🏆 ZAFER!' : '💀 YENİLGİ'}
+            {stats.reason === 'coop_victory' ? '✅ GÖREV BAŞARILI!' : stats.reason === 'coop_failed' ? '❌ GÖREV BAŞARISIZ' : stats.isWinner ? '🏆 ZAFER!' : '💀 YENİLGİ'}
           </motion.h1>
           {stats.winStreak > 1 && (
             <motion.p
