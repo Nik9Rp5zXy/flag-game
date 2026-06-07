@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Terminal, ShieldAlert, Cpu, Activity, Fingerprint } from 'lucide-react';
 import PlayerCard from './PlayerCard';
 
-export default function CoopArena({ players, myId, currentPhase, currentHint, commandHint, onCommandSubmit, onPing, afkWarning, opponentDisconnected }) {
+export default function CoopArena({ socket, roomId, players, myId, currentPhase, currentHint, commandHint, onCommandSubmit, onPing, afkWarning, opponentDisconnected }) {
   const me = players.find(p => p.id === myId);
   const opponent = players.find(p => p.id !== myId);
   
@@ -13,12 +13,36 @@ export default function CoopArena({ players, myId, currentPhase, currentHint, co
   const [pingMessage, setPingMessage] = useState('');
   const inputRef = useRef(null);
 
+  const [isBriefing, setIsBriefing] = useState(true);
+  const [iAmReady, setIAmReady] = useState(false);
+  const [partnerReady, setPartnerReady] = useState(false);
+
+  useEffect(() => {
+    if (!socket) return;
+    const onPartnerReady = () => setPartnerReady(true);
+    const onStart = () => setIsBriefing(false);
+
+    socket.on('coop_partner_ready', onPartnerReady);
+    socket.on('coop_start', onStart);
+
+    return () => {
+      socket.off('coop_partner_ready', onPartnerReady);
+      socket.off('coop_start', onStart);
+    };
+  }, [socket]);
+
+  const handleReady = () => {
+    if (iAmReady) return;
+    setIAmReady(true);
+    socket.emit('coop_ready', { roomId });
+  };
+
   // Focus terminal automatically
   useEffect(() => {
-    if (me?.role === 'breacher' && inputRef.current) {
+    if (!isBriefing && me?.role === 'breacher' && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [me?.role]);
+  }, [me?.role, isBriefing]);
 
   // Phase transition logs
   useEffect(() => {
@@ -41,20 +65,59 @@ export default function CoopArena({ players, myId, currentPhase, currentHint, co
   if (!me || !opponent) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-bg-dark text-white p-4">
-        <h1 className="text-xl font-bold mb-4 text-red-500">Co-Op Yükleniyor...</h1>
-        <pre className="text-xs text-gray-400 bg-gray-900 p-4 rounded text-left overflow-auto max-w-full">
-          DEBUG INFO:
-          myId: {myId}
-          players length: {players?.length}
-          players: {JSON.stringify(players, null, 2)}
-          hasMe: {me ? 'yes' : 'no'}
-          hasOpponent: {opponent ? 'yes' : 'no'}
-        </pre>
+        <h1 className="text-xl font-bold mb-4 animate-pulse text-neon-blue">Ajan Bekleniyor...</h1>
       </div>
     );
   }
 
   const isBreacher = me.role === 'breacher';
+
+  if (isBriefing) {
+    return (
+      <div className="flex flex-col min-h-screen bg-[#050505] text-[#00FF66] font-mono items-center justify-center p-4 relative overflow-hidden">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="border border-green-500 bg-black/80 p-8 max-w-2xl w-full flex flex-col items-center text-center shadow-[0_0_30px_rgba(0,255,102,0.2)] rounded-lg"
+        >
+          <Fingerprint className="w-16 h-16 text-green-500 mb-6 animate-pulse" />
+          <h2 className="text-3xl font-black mb-2 text-white">OP: SİBER SIZMA</h2>
+          <h3 className="text-xl mb-6 text-green-400">GÖREV: {isBreacher ? 'BREACHER (Taktiksel Terminal)' : 'ANALYST (Radar ve Şifre Çözücü)'}</h3>
+          
+          <div className="text-left bg-gray-900 p-6 rounded border border-gray-700 mb-8 w-full">
+            {isBreacher ? (
+              <p className="text-gray-300 leading-relaxed">
+                <span className="text-red-500 font-bold">DİKKAT:</span> Sen bir <span className="text-white">Breacher</span>'sın. Sisteme doğrudan bağlı olan sensin. Ancak hedefin hiçbir bilgisini veya şifresini göremezsin.<br/><br/>
+                Analist (Radar) sana şifreleri ve komutları iletecektir. Onun talimatlarını dinle ve terminale **Birebir Aynı** şekilde yaz.<br/><br/>
+                İletişim koparsa veya yanlış komut girerseniz sistem kilitlenir.
+              </p>
+            ) : (
+              <p className="text-gray-300 leading-relaxed">
+                <span className="text-red-500 font-bold">DİKKAT:</span> Sen bir <span className="text-white">Analist</span>'sin. Radar sende, hedefin şifreleri sende. Ancak sen komut GİREMEZSİN.<br/><br/>
+                Gördüğün şifreleri (gerekirse çözerek) hızlıca partnerine (Breacher) iletmelisin. Breacher bu komutları sisteme girecek.<br/><br/>
+                Ona doğru bilgiyi hızlı ulaştırmazsan zaman dolar ve operasyon başarısız olur.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col items-center gap-4 w-full">
+            <button 
+              onClick={handleReady}
+              disabled={iAmReady}
+              className={`w-full py-4 text-xl font-bold rounded transition-all ${
+                iAmReady ? 'bg-green-900 text-green-300 border-green-700 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-black border border-green-400 shadow-[0_0_15px_rgba(0,255,102,0.5)]'
+              }`}
+            >
+              {iAmReady ? 'HAZIR BEKLENİYOR...' : 'ONAYLIYORUM / HAZIRIM'}
+            </button>
+            <div className="text-sm text-gray-400">
+              Partner Durumu: {partnerReady ? <span className="text-green-500 font-bold">HAZIR</span> : <span className="text-red-500">BEKLENİYOR...</span>}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-[#050505] text-[#00FF66] font-mono p-4 relative overflow-hidden">

@@ -789,7 +789,11 @@ io.on('connection', (socket) => {
         players: Object.values(gameData.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, level: p.level, combo: 0, isOnFire: false, role: p.role, equippedItems: p.equippedItems }))
       });
 
-      setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(gameData); }, 2000);
+      if (gameMode === 'coop') {
+        gameData.readyPlayers = new Set();
+      } else {
+        setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(gameData); }, 2000);
+      }
       console.log(`[⚔] Eşleşme: ${roomId} [${gameMode}]`);
     } else {
       let botTimer = null;
@@ -846,6 +850,22 @@ io.on('connection', (socket) => {
     if (!game || game.gameMode !== 'coop') return;
     // Analyst ping the breacher
     socket.to(data.roomId).emit('coop_receive_ping', { message: data.message });
+  });
+
+  socket.on('coop_ready', (data) => {
+    const { roomId } = data;
+    const game = activeGames.get(roomId);
+    if (!game || game.gameMode !== 'coop') return;
+
+    if (!game.readyPlayers) game.readyPlayers = new Set();
+    game.readyPlayers.add(socket.id);
+
+    socket.to(roomId).emit('coop_partner_ready');
+
+    if (game.readyPlayers.size === 2) {
+       io.to(roomId).emit('coop_start');
+       sendNewQuestion(game);
+    }
   });
 
   socket.on('disconnect', () => {

@@ -236,6 +236,8 @@ function App() {
     return (
       <>
         <CoopArena
+          socket={socket}
+          roomId={roomId}
           players={players}
           myId={myId}
           currentPhase={coopPhase}

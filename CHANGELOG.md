@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [V10.3] - 2026-06-07
+### Added
+- Co-Op modunda oyuna başlamadan önce oyuncuların rollerini (Analist ve Breacher) detaylı bir şekilde açıklayan ve onay bekleyen animasyonlu "Görev Brifing" ekranı eklendi.
+- "Gerçek Zamanlı Hazır Sistemi" entegre edildi. Artık iki oyuncu da "Hazırım" butonuna basmadan oyun (süre) başlamıyor. Partnerin hazır olup olmadığı gerçek zamanlı olarak görülebiliyor.
+### Removed
+- Co-Op moduna girerken gösterilen teknik "DEBUG INFO" yazıları kaldırılarak daha profesyonel bir görünüm elde edildi.
+
 ## [V10.2] - 2026-06-07
 ### Fixed
 - Co-Op modunda "Yenilgi" ve "Kazanma" durumlarındaki büyük senkronizasyon (desync) hatası çözüldü. Artık iki oyuncu da eşzamanlı olarak aynı sonuç ekranını (Zafer veya Görev Başarısız) alacak.
