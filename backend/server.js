@@ -233,6 +233,108 @@ function sendNewQuestion(game) {
   
   io.to(game.roomId).emit('new_question', { type: game.currentQuestion.type, questionData: game.currentQuestion.questionData, options: game.currentQuestion.options });
   game.questionTimer = setTimeout(() => { handleTimeUp(game); }, QUESTION_TIME_LIMIT);
+
+  if (game.isBotMatch) {
+     const botId = Object.keys(game.players).find(pid => game.players[pid].isBot);
+     if (botId) {
+        const delay = Math.random() * 2000 + 1000;
+        game.botAnswerTimer = setTimeout(() => {
+           if (!activeGames.has(game.roomId)) return;
+           if (game.roundAnswered && game.roundAnswered[botId]) return;
+           const isCorrect = Math.random() > 0.4;
+           const ansId = isCorrect ? game.currentQuestion.correctId : game.currentQuestion.options[0].id;
+           processAnswer(null, game, botId, ansId);
+        }, delay);
+     }
+  }
+}
+
+function processAnswer(socket, game, playerId, answerId) {
+    if (game.roundAnswered && game.roundAnswered[playerId]) return;
+    if (!game.currentQuestion) return;
+
+    const player = game.players[playerId];
+    const opponentId = Object.keys(game.players).find(id => id !== playerId);
+    const opponent = game.players[opponentId];
+
+    player.answeredThisRound = true;
+    if (!game.roundAnswered) game.roundAnswered = {};
+    game.roundAnswered[playerId] = true;
+
+    const isCorrect = answerId === game.currentQuestion.correctId;
+    const answerTime = Date.now() - game.currentQuestion.createdAt;
+
+    if (isCorrect) {
+      player.correctAnswers = (player.correctAnswers || 0) + 1;
+      const speedBonus = Math.max(0, Math.floor((QUESTION_TIME_LIMIT - answerTime) / 1000));
+      player.totalSpeedBonus = (player.totalSpeedBonus || 0) + speedBonus;
+      if (answerTime < COMBO_SPEED_THRESHOLD) player.combo = (player.combo || 0) + 1;
+      else player.combo = 0;
+      player.maxCombo = Math.max(player.maxCombo || 0, player.combo);
+      
+      const wasOnFire = player.isOnFire;
+      if (player.combo >= COMBO_FIRE_THRESHOLD) player.isOnFire = true;
+
+      let damage = player.isOnFire ? ON_FIRE_DAMAGE_MULTIPLIER : 1;
+      opponent.hp = Math.max(0, opponent.hp - damage);
+
+      if (game.questionTimer) clearTimeout(game.questionTimer);
+      if (game.botAnswerTimer) clearTimeout(game.botAnswerTimer);
+
+      io.to(game.roomId).emit('answer_result', {
+        playerId: playerId, isCorrect: true, correctAnswerId: game.currentQuestion.correctId, damage, answerTimeMs: answerTime, combo: player.combo, isOnFire: player.isOnFire,
+        players: Object.values(game.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, level: p.level, combo: p.combo, isOnFire: p.isOnFire, equippedItems: p.equippedItems }))
+      });
+
+      if (opponent.hp <= 0) setTimeout(() => endGame(game, playerId, opponentId, 'knockout'), 1500);
+      else setTimeout(() => { if (activeGames.has(game.roomId)) sendNewQuestion(game); }, 2000);
+    } else {
+      player.combo = 0;
+      player.isOnFire = false;
+      io.to(game.roomId).emit('answer_result', { playerId: playerId, isCorrect: false, combo: 0, isOnFire: false });
+
+      if (game.roundAnswered[playerId] && game.roundAnswered[opponentId]) {
+        if (game.questionTimer) clearTimeout(game.questionTimer);
+        if (game.botAnswerTimer) clearTimeout(game.botAnswerTimer);
+        setTimeout(() => { if (activeGames.has(game.roomId)) sendNewQuestion(game); }, 2000);
+      }
+    }
+}
+
+function startBotMatch(humanSocketId, gameMode) {
+  const humanSocket = io.sockets.sockets.get(humanSocketId);
+  if (!humanSocket) return;
+
+  const roomId = `room_${Date.now()}_bot`;
+  humanSocket.join(roomId);
+
+  const profile1 = playerProfiles.get(humanSocketId) || {};
+  const botId = 'bot_' + Date.now();
+  const botName = 'AI_Master';
+
+  const gameData = {
+    roomId,
+    gameMode,
+    isBotMatch: true,
+    players: {
+      [humanSocketId]: { id: humanSocketId, name: profile1.name || 'Oyuncu', hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: profile1.level || 1, equippedItems: profile1.equippedItems || {} },
+      [botId]: { id: botId, name: botName, hp: 3, combo: 0, isOnFire: false, afkRounds: 0, answeredThisRound: false, correctAnswers: 0, totalSpeedBonus: 0, maxCombo: 0, level: 99, equippedItems: {}, isBot: true }
+    },
+    currentQuestion: null,
+    questionTimer: null,
+    roundAnswered: {}
+  };
+
+  activeGames.set(roomId, gameData);
+
+  io.to(roomId).emit('match_found', {
+    roomId,
+    gameMode,
+    players: Object.values(gameData.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, level: p.level, combo: 0, isOnFire: false, equippedItems: p.equippedItems }))
+  });
+
+  setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(gameData); }, 2000);
+  console.log(`[🤖] Bot Eşleşmesi: ${roomId} [${gameMode}]`);
 }
 
 function handleTimeUp(game) {
@@ -373,6 +475,9 @@ io.on('connection', (socket) => {
       if (targetUser) {
         try {
           db.prepare('UPDATE users SET role="admin" WHERE username=?').run(targetUser);
+          for (let [sId, p] of playerProfiles.entries()) {
+             if (p.name === targetUser) p.role = 'admin';
+          }
           io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisini ADMİN yaptı!`, role: 'system', level: 999, time: Date.now() });
         } catch(e) {}
       }
@@ -384,6 +489,9 @@ io.on('connection', (socket) => {
       if (targetUser) {
         try {
           db.prepare('UPDATE users SET role="user" WHERE username=?').run(targetUser);
+          for (let [sId, p] of playerProfiles.entries()) {
+             if (p.name === targetUser) p.role = 'user';
+          }
           io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisinin yetkilerini aldı.`, role: 'system', level: 999, time: Date.now() });
         } catch(e) {}
       }
@@ -479,14 +587,25 @@ io.on('connection', (socket) => {
       } catch (e) { /* invalid token */ }
     }
 
-    playerProfiles.set(socket.id, { ...profile, dbUserId, name: playerName });
-    socket.emit('profile_update', { ...profile, name: playerName, isAuthenticated: !!dbUserId });
+    const existingProfile = playerProfiles.get(socket.id) || {};
+    playerProfiles.set(socket.id, { 
+      ...existingProfile, 
+      ...profile, 
+      dbUserId: dbUserId || existingProfile.dbUserId, 
+      name: playerName,
+      isAuthenticated: existingProfile.isAuthenticated || !!dbUserId
+    });
+    socket.emit('profile_update', { ...profile, name: playerName, isAuthenticated: !!dbUserId || existingProfile.isAuthenticated });
 
-    for (const mode in matchmakingPool) matchmakingPool[mode] = matchmakingPool[mode].filter(p => p.id !== socket.id);
+    for (const mode in matchmakingPool) matchmakingPool[mode] = matchmakingPool[mode].filter(p => {
+       if (p.id === socket.id && p.botTimer) clearTimeout(p.botTimer);
+       return p.id !== socket.id;
+    });
     if (!matchmakingPool[gameMode]) matchmakingPool[gameMode] = [];
 
     if (matchmakingPool[gameMode].length > 0) {
       const opponent = matchmakingPool[gameMode].pop();
+      if (opponent.botTimer) clearTimeout(opponent.botTimer);
       const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
       socket.join(roomId);
@@ -520,7 +639,14 @@ io.on('connection', (socket) => {
       setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(gameData); }, 2000);
       console.log(`[⚔] Eşleşme: ${roomId} [${gameMode}]`);
     } else {
-      matchmakingPool[gameMode].push({ id: socket.id, socket, name: playerName });
+      let botTimer = null;
+      if (gameMode !== 'coop') {
+         botTimer = setTimeout(() => {
+            matchmakingPool[gameMode] = matchmakingPool[gameMode].filter(p => p.id !== socket.id);
+            startBotMatch(socket.id, gameMode);
+         }, 3000);
+      }
+      matchmakingPool[gameMode].push({ id: socket.id, socket, name: playerName, botTimer });
       console.log(`[…] Bekleniyor: ${playerName} (${gameMode})`);
     }
   });
@@ -550,7 +676,7 @@ io.on('connection', (socket) => {
           setTimeout(() => endGame(game, socket.id, socket.id, 'coop_victory'), 2000); 
         } else {
           game.coopPhase += 1;
-          setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(game); }, 2000);
+          setTimeout(() => { if (activeGames.has(game.roomId)) sendNewQuestion(game); }, 2000);
         }
       } else {
         socket.emit('coop_terminal_error', { command: answerId, error: 'Bilinmeyen komut veya yanlış parametre!' });
@@ -559,53 +685,7 @@ io.on('connection', (socket) => {
     }
 
     // REGULAR GAME MECHANICS
-    if (game.roundAnswered && game.roundAnswered[socket.id]) return;
-    if (!game.currentQuestion) return;
-
-    const player = game.players[socket.id];
-    const opponentId = Object.keys(game.players).find(id => id !== socket.id);
-    const opponent = game.players[opponentId];
-
-    player.answeredThisRound = true;
-    if (!game.roundAnswered) game.roundAnswered = {};
-    game.roundAnswered[socket.id] = true;
-
-    const isCorrect = answerId === game.currentQuestion.correctId;
-    const answerTime = now - game.currentQuestion.createdAt;
-
-    if (isCorrect) {
-      player.correctAnswers = (player.correctAnswers || 0) + 1;
-      const speedBonus = Math.max(0, Math.floor((QUESTION_TIME_LIMIT - answerTime) / 1000));
-      player.totalSpeedBonus = (player.totalSpeedBonus || 0) + speedBonus;
-      if (answerTime < COMBO_SPEED_THRESHOLD) player.combo = (player.combo || 0) + 1;
-      else player.combo = 0;
-      player.maxCombo = Math.max(player.maxCombo || 0, player.combo);
-      
-      const wasOnFire = player.isOnFire;
-      if (player.combo >= COMBO_FIRE_THRESHOLD) player.isOnFire = true;
-
-      let damage = player.isOnFire ? ON_FIRE_DAMAGE_MULTIPLIER : 1;
-      opponent.hp = Math.max(0, opponent.hp - damage);
-
-      if (game.questionTimer) clearTimeout(game.questionTimer);
-
-      io.to(roomId).emit('answer_result', {
-        playerId: socket.id, isCorrect: true, correctAnswerId: game.currentQuestion.correctId, damage, answerTimeMs: answerTime, combo: player.combo, isOnFire: player.isOnFire,
-        players: Object.values(game.players).map(p => ({ id: p.id, name: p.name, hp: p.hp, combo: p.combo, isOnFire: p.isOnFire, level: p.level, equippedItems: p.equippedItems }))
-      });
-
-      if (player.isOnFire && !wasOnFire) io.to(roomId).emit('on_fire', { playerId: socket.id });
-
-      if (opponent.hp <= 0) setTimeout(() => endGame(game, socket.id, opponentId, 'knockout'), 1500);
-      else setTimeout(() => { if (activeGames.has(roomId)) sendNewQuestion(game); }, 2000);
-    } else {
-      player.combo = 0;
-      if (player.isOnFire) {
-        player.isOnFire = false;
-        io.to(roomId).emit('fire_off', { playerId: socket.id });
-      }
-      socket.emit('answer_result', { playerId: socket.id, isCorrect: false, combo: 0, isOnFire: false });
-    }
+    processAnswer(socket, game, socket.id, answerId);
   });
 
   socket.on('coop_ping', (data) => {
@@ -616,7 +696,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    for (const mode in matchmakingPool) matchmakingPool[mode] = matchmakingPool[mode].filter(p => p.id !== socket.id);
+    console.log(`[-] Ayrıldı: ${socket.id}`);
+    playerProfiles.delete(socket.id);
+    for (const mode in matchmakingPool) {
+      matchmakingPool[mode] = matchmakingPool[mode].filter(p => {
+         if (p.id === socket.id && p.botTimer) clearTimeout(p.botTimer);
+         return p.id !== socket.id;
+      });
+    }
     for (const [roomId, game] of activeGames.entries()) {
       if (game.players[socket.id]) {
         const opponentId = Object.keys(game.players).find(id => id !== socket.id);
