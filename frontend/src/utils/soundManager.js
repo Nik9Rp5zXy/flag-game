@@ -28,19 +28,23 @@ class SoundManager {
   }
 
   startBgMusic() {
-    if (!this.isMusicPlaying && this.bgMusic.state() === 'loaded') {
+    if (this.bgMusic && !this.isMusicPlaying && this.bgMusic.state() === 'loaded') {
       this.bgMusic.play();
       this.isMusicPlaying = true;
     }
   }
 
   stopBgMusic() {
-    this.bgMusic.stop();
+    if (this.bgMusic) {
+      this.bgMusic.stop();
+    }
     this.isMusicPlaying = false;
   }
 
   setMusicVolume(vol) {
-    this.bgMusic.volume(vol);
+    if (this.bgMusic) {
+      this.bgMusic.volume(vol);
+    }
   }
 }
 
