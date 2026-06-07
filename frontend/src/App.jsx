@@ -55,7 +55,11 @@ function App() {
   useEffect(() => {
     if (token) localStorage.setItem('minigame_token', token);
     else localStorage.removeItem('minigame_token');
-  }, [token]);
+
+    if (socket && token) {
+      socket.emit('authenticate', token);
+    }
+  }, [token, socket]);
 
   useEffect(() => {
     const newSocket = io(SOCKET_URL, { reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000 });
