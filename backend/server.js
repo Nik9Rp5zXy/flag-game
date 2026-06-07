@@ -218,37 +218,42 @@ function generateQuestion(gameMode) {
 // ============================================================
 function generateCoopPhase(phase) {
   if (phase === 1) {
-    const a = Math.floor(Math.random() * 20) + 10;
-    const b = Math.floor(Math.random() * 5) + 2;
-    const port = a * b;
+    const prefixes = ['192.168.', '10.0.0.', '172.16.', '10.10.10.'];
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const targetSuffix = Math.floor(Math.random() * 40) * 2 + 1; // Tek sayı
+    const targetIP = `${prefix}${targetSuffix}`;
+    
     return { 
       phase, 
-      requiredRegex: new RegExp(`^crack\\s+(-p|--port)\\s+${port}$`, 'i'), 
-      timeLimit: 30000, 
-      hint: `Güvenlik Duvarı Aktif! Portu bul: ${a} x ${b} = ?`, 
-      commandHint: 'crack -p [PORT]' 
+      requiredRegex: new RegExp(`^scan\\s+${targetIP}$`, 'i'), 
+      timeLimit: 35000, 
+      hint: `[AĞ TARAMASI] Hedef IP'yi bul! Kural: "${prefix}" ile başlar ve sonu TEK SAYI ile biter.`, 
+      commandHint: 'scan [IP_ADRESI]' 
     };
   } else if (phase === 2) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    let code = '';
-    for(let i=0; i<4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    const reversed = code.split('').reverse().join('');
+    const base = Math.floor(Math.random() * 5) + 2; // 2 to 6
+    const multiplier = Math.floor(Math.random() * 3) + 2; // 2 to 4
+    const seq = [base, base * multiplier, base * multiplier * multiplier, base * multiplier * multiplier * multiplier];
+    const answer = seq[3] * multiplier;
+    
     return { 
       phase, 
-      requiredRegex: new RegExp(`^breach\\s+${code}$`, 'i'), 
-      timeLimit: 25000, 
-      hint: `Sistem Şifresi Ters Çevrilmiş: ${reversed}`, 
-      commandHint: 'breach [ŞİFRE]' 
+      requiredRegex: new RegExp(`^decrypt\\s+${answer}$`, 'i'), 
+      timeLimit: 30000, 
+      hint: `[ŞİFRE KIRMA] Veri dizisindeki eksik sayıyı bul: ${seq[0]} - ${seq[1]} - ${seq[2]} - ${seq[3]} - ?`, 
+      commandHint: 'decrypt [SAYI]' 
     };
   } else {
-    const colors = ['RED', 'BLUE', 'GREEN', 'BLACK', 'WHITE'];
-    const color = colors[Math.floor(Math.random() * colors.length)];
+    const power = Math.floor(Math.random() * 50) + 50; // 50-99
+    const cooling = Math.random() > 0.5 ? 'ON' : 'OFF';
+    const shield = Math.random() > 0.5 ? '1' : '0';
+    
     return { 
       phase, 
-      requiredRegex: new RegExp(`^override\\s+${color}$`, 'i'), 
-      timeLimit: 15000, 
-      hint: `Son Katman Rengi: ${color} (Bunu yazmalı!)`, 
-      commandHint: 'override [RENK(İngilizce)]' 
+      requiredRegex: new RegExp(`^overload\\s+${power}\\s+${cooling}\\s+${shield}$`, 'i'), 
+      timeLimit: 25000, 
+      hint: `[SİSTEM AŞIRI YÜKLEMESİ] Değerleri ayarla! Güç: %${power} | Soğutma: ${cooling} | Kalkan: ${shield === '1' ? 'Aktif(1)' : 'Pasif(0)'}`, 
+      commandHint: 'overload [GÜÇ] [SOĞUTMA(ON/OFF)] [KALKAN(1/0)]' 
     };
   }
 }
@@ -866,6 +871,23 @@ io.on('connection', (socket) => {
        io.to(roomId).emit('coop_start');
        sendNewQuestion(game);
     }
+  });
+
+  socket.on('coop_chat', (data) => {
+    const { roomId, message } = data;
+    const game = activeGames.get(roomId);
+    if (!game || game.gameMode !== 'coop') return;
+
+    const senderName = game.players[socket.id]?.name || 'Ajan';
+    const senderRole = game.players[socket.id]?.role === 'breacher' ? 'BREACHER' : 'ANALYST';
+    
+    io.to(roomId).emit('coop_chat_message', {
+      senderId: socket.id,
+      senderName,
+      senderRole,
+      message,
+      timestamp: Date.now()
+    });
   });
 
   socket.on('disconnect', () => {

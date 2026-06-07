@@ -17,19 +17,37 @@ export default function CoopArena({ socket, roomId, players, myId, currentPhase,
   const [iAmReady, setIAmReady] = useState(false);
   const [partnerReady, setPartnerReady] = useState(false);
 
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
   useEffect(() => {
     if (!socket) return;
     const onPartnerReady = () => setPartnerReady(true);
     const onStart = () => setIsBriefing(false);
+    const onChatMessage = (msg) => setChatMessages(prev => [...prev, msg]);
 
     socket.on('coop_partner_ready', onPartnerReady);
     socket.on('coop_start', onStart);
+    socket.on('coop_chat_message', onChatMessage);
 
     return () => {
       socket.off('coop_partner_ready', onPartnerReady);
       socket.off('coop_start', onStart);
+      socket.off('coop_chat_message', onChatMessage);
     };
   }, [socket]);
+
+  const handleSendChat = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    socket.emit('coop_chat', { roomId, message: chatInput });
+    setChatInput('');
+  };
 
   const handleReady = () => {
     if (iAmReady) return;
@@ -160,101 +178,137 @@ export default function CoopArena({ socket, roomId, players, myId, currentPhase,
       </header>
 
       {/* ── Main Content Asymmetrical ── */}
-      <div className="flex-1 flex gap-4">
+      <div className="flex-1 flex flex-col lg:flex-row gap-4">
         
-        {isBreacher ? (
-          /* ==================================================
-             BREACHER VIEW (TERMINAL)
-             ================================================== */
-          <div className="flex-1 flex flex-col border border-green-800 bg-black rounded-sm relative">
-            <div className="bg-green-900/30 border-b border-green-800 p-2 text-xs flex items-center gap-2">
-              <Terminal className="w-4 h-4" /> root@breacher-sys ~
-            </div>
-            
-            <div className="flex-1 p-4 overflow-y-auto space-y-2">
-              {terminalLogs.map((log, i) => (
-                <div key={i} className={`${log.type === 'input' ? 'text-white' : log.type === 'error' ? 'text-red-500' : 'text-green-500'} opacity-90`}>
-                  {log.text}
-                </div>
-              ))}
+        {/* Game Area */}
+        <div className="flex-[3] flex gap-4">
+          {isBreacher ? (
+            /* ==================================================
+               BREACHER VIEW (TERMINAL)
+               ================================================== */
+            <div className="flex-1 flex flex-col border border-green-800 bg-black rounded-sm relative">
+              <div className="bg-green-900/30 border-b border-green-800 p-2 text-xs flex items-center gap-2">
+                <Terminal className="w-4 h-4" /> root@breacher-sys ~
+              </div>
               
-              {/* Fake Ping Visual */}
-              <AnimatePresence>
-                {showPing && (
-                  <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="bg-green-500/20 text-white p-2 border-l-4 border-green-500 my-2 inline-block">
-                    [INCOMING TRANSMISSION] Analist: {pingMessage}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <form onSubmit={handleCommand} className="p-4 border-t border-green-800 flex items-center gap-2">
-              <span className="text-white font-bold">$</span>
-              <input 
-                ref={inputRef}
-                type="text" 
-                value={terminalInput}
-                onChange={e => setTerminalInput(e.target.value)}
-                className="flex-1 bg-transparent border-none outline-none text-green-400 font-mono text-lg placeholder-green-900"
-                placeholder={commandHint || "Komut girin..."}
-                autoComplete="off"
-                spellCheck="false"
-              />
-            </form>
-          </div>
-        ) : (
-          /* ==================================================
-             ANALYST VIEW (RADAR / INTEL)
-             ================================================== */
-          <div className="flex-1 flex flex-col md:flex-row gap-4">
-             {/* Radar Screen */}
-             <div className="flex-[2] border border-cyan-800 bg-[#001111] rounded-sm flex flex-col relative overflow-hidden">
-                <div className="bg-cyan-900/30 border-b border-cyan-800 p-2 text-xs text-cyan-500 flex items-center gap-2">
-                  <Activity className="w-4 h-4" /> NETWORK_MAP
-                </div>
+              <div className="flex-1 p-4 overflow-y-auto space-y-2">
+                {terminalLogs.map((log, i) => (
+                  <div key={i} className={`${log.type === 'input' ? 'text-white' : log.type === 'error' ? 'text-red-500' : 'text-green-500'} opacity-90`}>
+                    {log.text}
+                  </div>
+                ))}
                 
-                <div className="flex-1 flex items-center justify-center relative">
-                   {/* Fake Radar Sweep */}
-                   <motion.div 
-                     animate={{ rotate: 360 }} 
-                     transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-                     className="absolute w-[400px] h-[400px] rounded-full border border-cyan-900/50"
-                     style={{ background: 'conic-gradient(from 0deg, transparent 0%, rgba(0, 255, 255, 0.1) 20%, transparent 20%)' }}
-                   />
-                   
-                   {/* Target Node */}
-                   <motion.div 
-                     initial={{ scale: 0 }} animate={{ scale: 1 }}
-                     className="z-10 bg-cyan-900/40 border border-cyan-400 p-6 rounded-lg text-center cursor-pointer hover:bg-cyan-800/60 transition-colors"
-                     onClick={() => {
-                        onPing(`HEDEF BULUNDU: ${currentHint}`);
-                     }}
-                   >
-                     <Cpu className="w-12 h-12 text-cyan-400 mx-auto mb-2" />
-                     <div className="text-white font-bold">NODE_{currentPhase}</div>
-                     <div className="text-cyan-300 text-sm mt-2">{currentHint}</div>
-                     <div className="text-xs text-cyan-600 mt-4">(Breacher'a göndermek için tıkla)</div>
-                   </motion.div>
-                </div>
-             </div>
+                {/* Fake Ping Visual */}
+                <AnimatePresence>
+                  {showPing && (
+                    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="bg-green-500/20 text-white p-2 border-l-4 border-green-500 my-2 inline-block">
+                      [INCOMING TRANSMISSION] Analist: {pingMessage}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
-             {/* Tools / Actions */}
-             <div className="flex-1 border border-cyan-800 bg-[#001111] flex flex-col">
-                <div className="bg-cyan-900/30 border-b border-cyan-800 p-2 text-xs text-cyan-500">
-                  ACTION_PANEL
-                </div>
-                <div className="p-4 flex flex-col gap-3">
-                  <p className="text-sm text-cyan-400 mb-4">Görev: Breacher'a doğru parametreleri iletin.</p>
-                  <button onClick={() => onPing('DİKKAT: Güvenlik duvarı aktif!')} className="p-3 border border-red-500 text-red-500 hover:bg-red-900/30 cursor-pointer text-left text-sm">
-                     [PING] Tehlike Uyarısı
-                  </button>
-                  <button onClick={() => onPing(currentHint)} className="p-3 border border-cyan-500 text-cyan-400 hover:bg-cyan-900/30 cursor-pointer text-left text-sm font-bold">
-                     [PING] Hedef Verisi Gönder
-                  </button>
-                </div>
-             </div>
-          </div>
-        )}
+              <form onSubmit={handleCommand} className="p-4 border-t border-green-800 flex items-center gap-2">
+                <span className="text-white font-bold">$</span>
+                <input 
+                  ref={inputRef}
+                  type="text" 
+                  value={terminalInput}
+                  onChange={e => setTerminalInput(e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none text-green-400 font-mono text-lg placeholder-green-900"
+                  placeholder={commandHint || "Komut girin..."}
+                  autoComplete="off"
+                  spellCheck="false"
+                />
+              </form>
+            </div>
+          ) : (
+            /* ==================================================
+               ANALYST VIEW (RADAR / INTEL)
+               ================================================== */
+            <div className="flex-1 flex flex-col md:flex-row gap-4">
+               {/* Radar Screen */}
+               <div className="flex-[2] border border-cyan-800 bg-[#001111] rounded-sm flex flex-col relative overflow-hidden">
+                  <div className="bg-cyan-900/30 border-b border-cyan-800 p-2 text-xs text-cyan-500 flex items-center gap-2">
+                    <Activity className="w-4 h-4" /> NETWORK_MAP
+                  </div>
+                  
+                  <div className="flex-1 flex items-center justify-center relative">
+                     {/* Fake Radar Sweep */}
+                     <motion.div 
+                       animate={{ rotate: 360 }} 
+                       transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                       className="absolute w-[400px] h-[400px] rounded-full border border-cyan-900/50"
+                       style={{ background: 'conic-gradient(from 0deg, transparent 0%, rgba(0, 255, 255, 0.1) 20%, transparent 20%)' }}
+                     />
+                     
+                     {/* Target Node */}
+                     <motion.div 
+                       initial={{ scale: 0 }} animate={{ scale: 1 }}
+                       className="z-10 bg-cyan-900/40 border border-cyan-400 p-6 rounded-lg text-center cursor-pointer hover:bg-cyan-800/60 transition-colors"
+                       onClick={() => {
+                          onPing(`HEDEF BULUNDU: ${currentHint}`);
+                       }}
+                     >
+                       <Cpu className="w-12 h-12 text-cyan-400 mx-auto mb-2" />
+                       <div className="text-white font-bold">NODE_{currentPhase}</div>
+                       <div className="text-cyan-300 text-sm mt-2">{currentHint}</div>
+                       <div className="text-xs text-cyan-600 mt-4">(Breacher'a göndermek için tıkla)</div>
+                     </motion.div>
+                  </div>
+               </div>
+
+               {/* Tools / Actions */}
+               <div className="flex-1 border border-cyan-800 bg-[#001111] flex flex-col">
+                  <div className="bg-cyan-900/30 border-b border-cyan-800 p-2 text-xs text-cyan-500">
+                    ACTION_PANEL
+                  </div>
+                  <div className="p-4 flex flex-col gap-3">
+                    <p className="text-sm text-cyan-400 mb-4">Görev: Telsizi (Team Chat) kullanarak şifreleri çözüp Breacher'a iletin.</p>
+                    <button onClick={() => onPing('DİKKAT: Güvenlik duvarı aktif!')} className="p-3 border border-red-500 text-red-500 hover:bg-red-900/30 cursor-pointer text-left text-sm">
+                       [PING] Tehlike Uyarısı
+                    </button>
+                    <button onClick={() => onPing('Bulmaca bende, çözüyorum!')} className="p-3 border border-cyan-500 text-cyan-400 hover:bg-cyan-900/30 cursor-pointer text-left text-sm font-bold">
+                       [PING] Çözüyorum...
+                    </button>
+                  </div>
+               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Team Chat Area */}
+        <div className="flex-[1] flex flex-col border border-gray-700 bg-[#0a0a0a] rounded-sm min-w-[280px]">
+           <div className="bg-gray-800 p-2 text-xs font-bold border-b border-gray-700 text-white flex items-center justify-between">
+              <span>ŞİFRELİ TELSİZ</span>
+              <span className="animate-pulse text-green-500">● ON</span>
+           </div>
+           <div className="flex-1 p-3 overflow-y-auto space-y-2 text-sm font-sans flex flex-col">
+              {chatMessages.length === 0 && <div className="text-gray-500 italic text-center mt-4">İletişim kanalı açık...</div>}
+              {chatMessages.map((msg, idx) => (
+                 <div key={idx} className={`p-2 rounded max-w-[90%] break-words ${msg.senderId === myId ? 'bg-green-900/40 text-green-100 self-end border border-green-800/50' : 'bg-gray-800 text-gray-200 self-start border border-gray-700'}`}>
+                    <div className={`text-[10px] font-bold mb-1 ${msg.senderRole === 'BREACHER' ? 'text-green-500' : 'text-cyan-500'}`}>
+                       [{msg.senderRole}] {msg.senderName}
+                    </div>
+                    <div>{msg.message}</div>
+                 </div>
+              ))}
+              <div ref={chatEndRef} />
+           </div>
+           <form onSubmit={handleSendChat} className="p-2 border-t border-gray-700 flex gap-2">
+              <input 
+                 type="text" 
+                 value={chatInput} 
+                 onChange={e => setChatInput(e.target.value)} 
+                 className="flex-1 bg-gray-900 text-white rounded px-2 py-1 outline-none font-sans text-sm border border-gray-700 focus:border-green-500 transition-colors"
+                 placeholder="Takıma mesaj gönder..."
+                 maxLength={150}
+                 autoComplete="off"
+              />
+              <button type="submit" className="bg-green-700 hover:bg-green-600 px-3 rounded text-white font-bold text-xs cursor-pointer transition-colors">GÖNDER</button>
+           </form>
+        </div>
+
       </div>
 
     </div>

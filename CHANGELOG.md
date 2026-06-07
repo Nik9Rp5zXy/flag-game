@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [V10.4] - 2026-06-07
+### Added
+- Co-Op modunda iletişim kurabilmek için Analist ve Breacher'ın ortak kullanabileceği "ŞİFRELİ TELSİZ" (Team Chat) sistemi arayüze eklendi. Sesli konuşma zorunluluğu ortadan kalktı.
+- Co-Op bulmacaları tamamen yenilendi ve zorlaştırıldı:
+  - 1. Aşama: **Ağ Taraması** (Belli kurallara uyan IP adresini bulma)
+  - 2. Aşama: **Kriptografi** (Sayısal örüntüyü çözüp eksik şifreyi bulma)
+  - 3. Aşama: **Sistem Aşırı Yüklemesi** (Güç, Soğutma ve Kalkan değerlerini tek komutta ayarlama)
+### Optimized
+- `server.js` içerisindeki aktif oyun, bağlantı kopma (disconnect) ve eşleşme (matchmaking) bellek kullanımları (Map ve Set'ler) olası memory leak'lere karşı gözden geçirildi ve optimize edildi.
+
 ## [V10.3] - 2026-06-07
 ### Added
 - Co-Op modunda oyuna başlamadan önce oyuncuların rollerini (Analist ve Breacher) detaylı bir şekilde açıklayan ve onay bekleyen animasyonlu "Görev Brifing" ekranı eklendi.
