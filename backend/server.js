@@ -490,7 +490,7 @@ io.on('connection', (socket) => {
       const targetUser = data.text.split('/admin yap ')[1]?.trim();
       if (targetUser) {
           try {
-            const info = db.prepare('UPDATE users SET role="admin" WHERE username=?').run(targetUser);
+            const info = db.prepare("UPDATE users SET role='admin' WHERE username=?").run(targetUser);
             if (info.changes > 0) {
               for (let [sId, p] of playerProfiles.entries()) {
                  if (p.name === targetUser) p.role = 'admin';
@@ -512,13 +512,20 @@ io.on('connection', (socket) => {
       const targetUser = data.text.split('/admin kaldir ')[1]?.trim();
       if (targetUser) {
         try {
-          db.prepare('UPDATE users SET role="user" WHERE username=?').run(targetUser);
-          for (let [sId, p] of playerProfiles.entries()) {
-             if (p.name === targetUser) p.role = 'user';
+          const info = db.prepare("UPDATE users SET role='user' WHERE username=?").run(targetUser);
+          if (info.changes > 0) {
+            for (let [sId, p] of playerProfiles.entries()) {
+               if (p.name === targetUser) p.role = 'user';
+            }
+            io.emit('role_updated', { username: targetUser, role: 'user' });
+            io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisinin yetkilerini aldı.`, role: 'system', level: 999, time: Date.now() });
+          } else {
+            socket.emit('chat_error', { message: 'Kullanıcı bulunamadı veya güncellenemedi.' });
           }
-          io.emit('role_updated', { username: targetUser, role: 'user' });
-          io.emit('new_global_message', { id: Date.now().toString(), sender: 'SYSTEM', text: `👑 Kurucu, ${targetUser} kişisinin yetkilerini aldı.`, role: 'system', level: 999, time: Date.now() });
-        } catch(e) {}
+        } catch(e) {
+          console.error('Admin yetkisi alma hatası:', e);
+          socket.emit('chat_error', { message: 'Admin yetkisi alma sırasında hata oluştu.' });
+        }
       }
       return;
     }
