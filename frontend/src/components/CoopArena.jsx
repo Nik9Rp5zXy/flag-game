@@ -62,18 +62,18 @@ export default function CoopArena({ players, myId, currentPhase, currentHint, co
       </AnimatePresence>
 
       {/* ── Header ── */}
-      <header className="flex justify-between items-center border-b border-green-900 pb-4 mb-4">
+      <header className="flex flex-col md:flex-row justify-between items-center border-b border-green-900 pb-4 mb-4 gap-4 md:gap-0">
         <div className="flex items-center gap-3">
           <Fingerprint className="w-8 h-8 text-green-500" />
-          <div>
-            <h1 className="text-2xl font-black tracking-widest text-white">OP: SİBER SIZMA</h1>
-            <p className="text-sm text-green-700">ROL: {isBreacher ? 'BREACHER (TERMINAL)' : 'ANALYST (RADAR)'}</p>
+          <div className="text-center md:text-left">
+            <h1 className="text-xl md:text-2xl font-black tracking-widest text-white">OP: SİBER SIZMA</h1>
+            <p className="text-xs md:text-sm text-green-700">ROL: {isBreacher ? 'BREACHER (TERMINAL)' : 'ANALYST (RADAR)'}</p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-center">
            <button 
              onClick={() => window.location.reload()}
-             className="px-3 py-1 bg-red-900/50 hover:bg-red-600 text-red-200 text-xs font-bold rounded border border-red-800 transition-colors cursor-pointer"
+             className="px-3 py-2 bg-red-900/50 hover:bg-red-600 text-red-200 text-xs font-bold rounded border border-red-800 transition-colors cursor-pointer"
            >
              Menüye Dön
            </button>
@@ -129,7 +129,7 @@ export default function CoopArena({ players, myId, currentPhase, currentHint, co
           /* ==================================================
              ANALYST VIEW (RADAR / INTEL)
              ================================================== */
-          <div className="flex-1 flex gap-4">
+          <div className="flex-1 flex flex-col md:flex-row gap-4">
              {/* Radar Screen */}
              <div className="flex-[2] border border-cyan-800 bg-[#001111] rounded-sm flex flex-col relative overflow-hidden">
                 <div className="bg-cyan-900/30 border-b border-cyan-800 p-2 text-xs text-cyan-500 flex items-center gap-2">

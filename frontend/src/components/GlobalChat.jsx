@@ -56,7 +56,7 @@ export default function GlobalChat({ socket, profile }) {
           opacity: isOpen ? 1 : 0,
           marginBottom: isOpen ? 16 : 0
         }}
-        className="w-80 sm:w-96 bg-black/90 border border-neon-blue rounded-t-xl rounded-br-xl overflow-hidden shadow-[0_0_20px_rgba(0,240,255,0.2)] backdrop-blur-md flex flex-col pointer-events-auto origin-bottom-left"
+        className="w-[calc(100vw-2rem)] sm:w-96 bg-black/90 border border-neon-blue rounded-t-xl rounded-br-xl overflow-hidden shadow-[0_0_20px_rgba(0,240,255,0.2)] backdrop-blur-md flex flex-col pointer-events-auto origin-bottom-left"
       >
         <div className="bg-blue-900/40 border-b border-neon-blue p-3 flex justify-between items-center">
           <span className="font-bold text-neon-blue flex items-center gap-2">

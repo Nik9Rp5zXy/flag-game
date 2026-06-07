@@ -47,7 +47,7 @@ export default function PlayerCard({ player, isMe, isDamaged }) {
         scale: player.isOnFire ? [1, 1.05, 1] : 1
       }}
       transition={{ duration: 0.3 }}
-      className={`relative w-32 md:w-48 p-3 rounded-2xl flex flex-col items-center justify-center border-4 ${frameClass} ${frameGlow} transition-all duration-300 overflow-hidden`}
+      className={`relative w-28 sm:w-32 md:w-48 p-2 md:p-3 rounded-xl md:rounded-2xl flex flex-col items-center justify-center border-2 md:border-4 ${frameClass} ${frameGlow} transition-all duration-300 overflow-hidden`}
     >
       {/* Background visual effects */}
       {effectNode}
