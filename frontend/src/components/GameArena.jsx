@@ -19,16 +19,9 @@ export default function GameArena({
   if (!me || !opponent || !currentQuestion) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-bg-dark text-white p-4">
-        <h1 className="text-xl font-bold mb-4 text-red-500">Oyun Yükleniyor veya Bağlantı Bekleniyor...</h1>
-        <pre className="text-xs text-gray-400 bg-gray-900 p-4 rounded text-left overflow-auto max-w-full">
-          DEBUG INFO:
-          myId: {myId}
-          players length: {players?.length}
-          players: {JSON.stringify(players, null, 2)}
-          hasMe: {me ? 'yes' : 'no'}
-          hasOpponent: {opponent ? 'yes' : 'no'}
-          hasCurrentQuestion: {currentQuestion ? 'yes' : 'no'}
-        </pre>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+        <h1 className="text-xl font-bold text-gray-300 tracking-wide">Saha Hazırlanıyor...</h1>
+        <p className="text-sm text-gray-500 mt-2 animate-pulse">Oyuncular bekleniyor veya bağlantı kuruluyor</p>
       </div>
     );
   }
