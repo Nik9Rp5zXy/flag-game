@@ -168,8 +168,8 @@ function App() {
   }, [socket, profile, token]);
 
   const handleAnswer = useCallback((answerId) => {
-    socket.emit('submit_answer', { roomId, answerId });
-  }, [socket, roomId]);
+    socket.emit('submit_answer', { roomId, answerId, questionId: currentQuestion?.createdAt });
+  }, [socket, roomId, currentQuestion]);
 
   const handleSendEmote = useCallback((emote) => {
     socket.emit('send_emote', { roomId, emote });

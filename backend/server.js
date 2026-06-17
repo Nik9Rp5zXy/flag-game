@@ -814,7 +814,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('submit_answer', (data) => {
-    const { roomId, answerId } = data;
+    const { roomId, answerId, questionId } = data;
     if (!roomId) return;
     const now = Date.now();
     const lastAnswer = rateLimitMap.get(socket.id) || 0;
@@ -823,6 +823,14 @@ io.on('connection', (socket) => {
 
     const game = activeGames.get(roomId);
     if (!game || !game.players[socket.id]) return;
+
+    // RACE CONDITION FIX
+    if (game.gameMode !== 'coop' && game.currentQuestion && questionId) {
+       if (game.currentQuestion.createdAt !== questionId) {
+          // Gelen cevap eski bir soruya ait, yoksay
+          return;
+       }
+    }
 
     // CO-OP MECHANICS
     if (game.gameMode === 'coop') {
@@ -834,7 +842,6 @@ io.on('connection', (socket) => {
         if (game.questionTimer) clearTimeout(game.questionTimer);
         io.to(roomId).emit('coop_success', { phase: game.currentCoop.phase });
         if (game.coopPhase >= 3) {
-          // Co-op bitti, iki oyuncuya da XP/Coin verelim (basit bir win state)
           setTimeout(() => endGame(game, null, null, 'coop_victory'), 2000);
         } else {
           game.coopPhase += 1;

@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [V10.5] - 2026-06-17
+### Fixed
+- **Hayalet Soru (Race Condition) Bug'ı Çözüldü:** İki oyuncunun aynı anda doğru ve yanlış cevapları seçmesi durumunda (bayrak değişme anında tıklama), sunucunun eski cevabı yeni soruya aitmiş gibi algılayıp haksız hasar verme hatası giderildi. Artık tıklamalar "Soru Kimliği (Timestamp)" ile eşleştiriliyor.
+### Added
+- Co-Op modunda, oyun başladıktan sonra oyuncuların ne yapacaklarını unutmamaları için kalıcı bir "OYUN İÇİ REHBER" eklendi. Analist ve Breacher'ın ekranlarında rollerine uygun anlık görevleri sabit olarak gösteriliyor.
+
 ## [V10.4] - 2026-06-07
 ### Added
 - Co-Op modunda iletişim kurabilmek için Analist ve Breacher'ın ortak kullanabileceği "ŞİFRELİ TELSİZ" (Team Chat) sistemi arayüze eklendi. Sesli konuşma zorunluluğu ortadan kalktı.

@@ -181,8 +181,20 @@ export default function CoopArena({ socket, roomId, players, myId, currentPhase,
       <div className="flex-1 flex flex-col lg:flex-row gap-4">
         
         {/* Game Area */}
-        <div className="flex-[3] flex gap-4">
-          {isBreacher ? (
+        <div className="flex-[3] flex flex-col gap-4">
+          
+          {/* IN-GAME GUIDE */}
+          <div className={`p-3 rounded text-sm flex gap-3 items-center border ${isBreacher ? 'bg-green-900/20 border-green-500/50 text-green-200' : 'bg-cyan-900/20 border-cyan-500/50 text-cyan-200'}`}>
+             <div className={`font-bold px-2 py-1 rounded text-xs ${isBreacher ? 'bg-green-500 text-black' : 'bg-cyan-500 text-black'}`}>REHBER</div>
+             <div>
+                {isBreacher 
+                   ? "DİKKAT: Hedefi GÖREMEZSİNİZ! Sağdaki telsizden Analist'in şifreyi söylemesini bekleyin ve alttaki terminale yazın." 
+                   : "DİKKAT: Terminale YAZAMAZSINIZ! Sağdaki telsizi kullanarak ekrandaki şifreyi/hedefi Breacher'a söyleyin."}
+             </div>
+          </div>
+
+          <div className="flex-1 flex gap-4">
+            {isBreacher ? (
             /* ==================================================
                BREACHER VIEW (TERMINAL)
                ================================================== */
@@ -275,6 +287,7 @@ export default function CoopArena({ socket, roomId, players, myId, currentPhase,
                </div>
             </div>
           )}
+          </div>
         </div>
 
         {/* Team Chat Area */}
