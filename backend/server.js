@@ -131,6 +131,22 @@ const chatRateLimitMap = new Map();
 const typingUsers = new Set();
 const MAX_CHAT_HISTORY = 50;
 let globalChatHistory = [];
+
+const dbWriteQueue = [];
+function queueDbUpdate(query, params) {
+    dbWriteQueue.push({ query, params });
+}
+setInterval(() => {
+    if (dbWriteQueue.length > 0) {
+        const job = dbWriteQueue.shift();
+        try {
+            db.prepare(job.query).run(...job.params);
+        } catch (e) {
+            console.error('DB Write Queue Error:', e);
+        }
+    }
+}, 50);
+
 try {
   const rows = db.prepare('SELECT * FROM messages ORDER BY time ASC LIMIT ?').all(MAX_CHAT_HISTORY);
   globalChatHistory = rows.map(r => ({
@@ -448,8 +464,8 @@ function endGame(game, winnerId, loserId, reason) {
         }
         
         if (profile.dbUserId) {
-          db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
-            .run(profile.level, profile.xp, profile.coins, profile.winStreak, profile.dbUserId);
+          queueDbUpdate('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?', 
+            [profile.level, profile.xp, profile.coins, profile.winStreak, profile.dbUserId]);
         }
         
         playerProfiles.set(pid, profile);
@@ -512,12 +528,12 @@ function endGame(game, winnerId, loserId, reason) {
   }
 
   if (winnerProfile.dbUserId) {
-    db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
-      .run(winnerProfile.level, winnerProfile.xp, winnerProfile.coins, winnerProfile.winStreak, winnerProfile.dbUserId);
+    queueDbUpdate('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?', 
+      [winnerProfile.level, winnerProfile.xp, winnerProfile.coins, winnerProfile.winStreak, winnerProfile.dbUserId]);
   }
   if (loserProfile.dbUserId) {
-    db.prepare('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?')
-      .run(loserProfile.level, loserProfile.xp, loserProfile.coins, loserProfile.winStreak, loserProfile.dbUserId);
+    queueDbUpdate('UPDATE users SET level=?, xp=?, coins=?, win_streak=? WHERE id=?', 
+      [loserProfile.level, loserProfile.xp, loserProfile.coins, loserProfile.winStreak, loserProfile.dbUserId]);
   }
 
   playerProfiles.set(winnerId, winnerProfile);
@@ -934,27 +950,28 @@ io.on('connection', (socket) => {
   // WEBRTC SIGNALING (For Voice Chat in Blackout Mode)
   // ============================================================
   socket.on('webrtc_offer', (data) => {
-     // data: { targetId, offer, roomId }
-     io.to(data.targetId).emit('webrtc_offer', {
-        senderId: socket.id,
-        offer: data.offer
-     });
+     const { targetId, offer, roomId } = data;
+     const lobby = blackoutLobbies.get(roomId) || activeGames.get(roomId);
+     
+     // Auth Check: Are both players actually in this room?
+     if (!lobby || !lobby.players.find(p => p.id === socket.id && p.id) || !lobby.players.find(p => p.id === targetId && p.id)) {
+         return; // Malicious drop
+     }
+     io.to(targetId).emit('webrtc_offer', { senderId: socket.id, offer });
   });
 
   socket.on('webrtc_answer', (data) => {
-     // data: { targetId, answer, roomId }
-     io.to(data.targetId).emit('webrtc_answer', {
-        senderId: socket.id,
-        answer: data.answer
-     });
+     const { targetId, answer, roomId } = data;
+     const lobby = blackoutLobbies.get(roomId) || activeGames.get(roomId);
+     if (!lobby || !lobby.players.find(p => p.id === socket.id && p.id) || !lobby.players.find(p => p.id === targetId && p.id)) return;
+     io.to(targetId).emit('webrtc_answer', { senderId: socket.id, answer });
   });
 
   socket.on('webrtc_ice_candidate', (data) => {
-     // data: { targetId, candidate, roomId }
-     io.to(data.targetId).emit('webrtc_ice_candidate', {
-        senderId: socket.id,
-        candidate: data.candidate
-     });
+     const { targetId, candidate, roomId } = data;
+     const lobby = blackoutLobbies.get(roomId) || activeGames.get(roomId);
+     if (!lobby || !lobby.players.find(p => p.id === socket.id && p.id) || !lobby.players.find(p => p.id === targetId && p.id)) return;
+     io.to(targetId).emit('webrtc_ice_candidate', { senderId: socket.id, candidate });
   });
 
   socket.on('submit_answer', (data) => {
@@ -1039,6 +1056,39 @@ io.on('connection', (socket) => {
       message,
       timestamp: Date.now()
     });
+  });
+
+  socket.on('reclaim_session', (data) => {
+    const { token, roomId } = data;
+    if (!token || !roomId) return;
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const dbUserId = decoded.id;
+
+        const game = activeGames.get(roomId);
+        if (!game) return socket.emit('chat_error', { message: 'Oda bulunamadı veya kapandı.' });
+
+        const oldSocketId = Object.keys(game.players).find(id => disconnectedPlayers.has(id) && disconnectedPlayers.get(id).profile?.dbUserId === dbUserId);
+        
+        if (oldSocketId) {
+            const timeoutData = disconnectedPlayers.get(oldSocketId);
+            if (timeoutData) clearTimeout(timeoutData.timeout);
+            disconnectedPlayers.delete(oldSocketId);
+
+            game.players[socket.id] = game.players[oldSocketId];
+            game.players[socket.id].id = socket.id;
+            delete game.players[oldSocketId];
+
+            playerProfiles.set(socket.id, timeoutData.profile);
+            
+            socket.join(roomId);
+            io.to(roomId).emit('opponent_reconnected');
+            
+            socket.emit('session_reclaimed', { gameMode: game.gameMode, players: game.players, roomId });
+        }
+    } catch (e) {
+        socket.emit('chat_error', { message: 'Oturum kurtarılamadı.' });
+    }
   });
 
   socket.on('disconnect', () => {
