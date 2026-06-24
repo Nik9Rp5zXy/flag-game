@@ -121,8 +121,9 @@ app.post('/api/purchase', (req, res) => {
 // ============================================================
 // IN-MEMORY STATE FOR GAMES
 // ============================================================
-let matchmakingPool = { flag: [], capital: [], math: [], coop: [] };
+let matchmakingPool = { flag: [], capital: [], math: [], coop: [], blackout: [] };
 const activeGames = new Map();       // roomId -> GameState
+const blackoutLobbies = new Map();   // roomId -> LobbyState (for 2-4 player custom rooms)
 const playerProfiles = new Map();    // socketId -> session profile
 const disconnectedPlayers = new Map(); // socketId -> timeout details
 const rateLimitMap = new Map();      
@@ -811,6 +812,118 @@ io.on('connection', (socket) => {
       matchmakingPool[gameMode].push({ id: socket.id, socket, name: playerName, botTimer });
       console.log(`[…] Bekleniyor: ${playerName} (${gameMode})`);
     }
+  });
+
+  // ============================================================
+  // BLACKOUT LOBBY SYSTEM
+  // ============================================================
+  socket.on('join_blackout_lobby', (data) => {
+     const { playerName, targetRoomId } = data;
+     const profile = playerProfiles.get(socket.id) || {};
+     const pName = profile.isAuthenticated ? profile.name : (playerName || `Misafir_${Math.floor(Math.random() * 9000) + 1000}`);
+     
+     let roomId = targetRoomId;
+     let lobby = roomId ? blackoutLobbies.get(roomId) : null;
+
+     // Eger oda belirtilmemisse veya yoksa acik bir lobi bulalim
+     if (!lobby && !targetRoomId) {
+       for (const [rId, l] of blackoutLobbies.entries()) {
+         if (l.players.length < 4 && l.status === 'waiting') {
+            lobby = l;
+            roomId = rId;
+            break;
+         }
+       }
+     }
+
+     // Yeni lobi kur
+     if (!lobby) {
+        roomId = targetRoomId || `BO_${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+        lobby = { roomId, status: 'waiting', players: [] };
+        blackoutLobbies.set(roomId, lobby);
+     }
+
+     if (lobby.players.length >= 4) {
+        return socket.emit('chat_error', { message: 'Oda dolu!' });
+     }
+     if (lobby.status !== 'waiting') {
+        return socket.emit('chat_error', { message: 'Oyun zaten basladi!' });
+     }
+
+     // Oyuncuyu lobiye ekle
+     socket.join(roomId);
+     lobby.players.push({ id: socket.id, name: pName, role: null, isReady: false });
+     
+     io.to(roomId).emit('blackout_lobby_update', lobby);
+  });
+
+  socket.on('blackout_select_role', (data) => {
+     const { roomId, role } = data;
+     const lobby = blackoutLobbies.get(roomId);
+     if (!lobby) return;
+     
+     // Bu rolu baskasi almis mi?
+     const taken = lobby.players.some(p => p.role === role && p.id !== socket.id);
+     if (taken) return;
+
+     const p = lobby.players.find(x => x.id === socket.id);
+     if (p) {
+        p.role = role;
+        io.to(roomId).emit('blackout_lobby_update', lobby);
+     }
+  });
+
+  socket.on('blackout_toggle_ready', (data) => {
+     const { roomId } = data;
+     const lobby = blackoutLobbies.get(roomId);
+     if (!lobby) return;
+
+     const p = lobby.players.find(x => x.id === socket.id);
+     if (p) {
+        p.isReady = !p.isReady;
+        io.to(roomId).emit('blackout_lobby_update', lobby);
+
+        // Herkes hazirsa ve en az 2 kisi varsa baslat
+        if (lobby.players.length >= 2 && lobby.players.every(x => x.isReady && x.role)) {
+           lobby.status = 'playing';
+           io.to(roomId).emit('blackout_start_game', lobby);
+           
+           // Istege bagli: activeGames'e de alabiliriz ki baglanti koptugunda yonetebilelim
+           activeGames.set(roomId, {
+              roomId, gameMode: 'blackout', players: lobby.players.reduce((acc, pl) => {
+                 acc[pl.id] = { id: pl.id, name: pl.name, role: pl.role, hp: 10 };
+                 return acc;
+              }, {})
+           });
+        }
+     }
+  });
+
+  // ============================================================
+  // WEBRTC SIGNALING (For Voice Chat in Blackout Mode)
+  // ============================================================
+  socket.on('webrtc_offer', (data) => {
+     // data: { targetId, offer, roomId }
+     io.to(data.targetId).emit('webrtc_offer', {
+        senderId: socket.id,
+        offer: data.offer
+     });
+  });
+
+  socket.on('webrtc_answer', (data) => {
+     // data: { targetId, answer, roomId }
+     io.to(data.targetId).emit('webrtc_answer', {
+        senderId: socket.id,
+        answer: data.answer
+     });
+  });
+
+  socket.on('webrtc_ice_candidate', (data) => {
+     // data: { targetId, candidate, roomId }
+     io.to(data.targetId).emit('webrtc_ice_candidate', {
+        senderId: socket.id,
+        candidate: data.candidate
+     });
   });
 
   socket.on('submit_answer', (data) => {

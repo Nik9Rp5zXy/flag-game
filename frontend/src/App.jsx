@@ -7,6 +7,8 @@ import GameSummary from './components/GameSummary';
 import LevelUpOverlay from './components/LevelUpOverlay';
 import Shop from './components/Shop';
 import AuthScreen from './components/AuthScreen';
+import BlackoutLobby from './components/BlackoutLobby';
+import BlackoutArena from './components/BlackoutArena';
 import { playSound, startBgMusic } from './utils/soundManager';
 
 const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:5000';
@@ -21,6 +23,9 @@ function App() {
   
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [damagedPlayerId, setDamagedPlayerId] = useState(null);
+
+  // Blackout State
+  const [blackoutLobbyData, setBlackoutLobbyData] = useState(null);
 
   // Coop State
   const [coopPhase, setCoopPhase] = useState(0);
@@ -138,6 +143,17 @@ function App() {
     newSocket.on('opponent_disconnected_waiting', () => setOpponentDisconnected(true));
     newSocket.on('opponent_reconnected', () => setOpponentDisconnected(false));
 
+    // BLACKOUT EVENTS
+    newSocket.on('blackout_lobby_update', (lobby) => {
+      setBlackoutLobbyData(lobby);
+      setPlayers(lobby.players);
+      setRoomId(lobby.roomId);
+    });
+    newSocket.on('blackout_start_game', (lobby) => {
+      setGameState('blackout_playing');
+      playSound('slam');
+    });
+
     newSocket.on('game_summary', (data) => {
       setGameSummaryStats(data.yourStats);
       setGameState('game_summary');
@@ -158,10 +174,17 @@ function App() {
   }, []);
 
   const handleStartMatchmaking = useCallback((selectedMode) => {
-    // If not authenticated and not guest, maybe force auth? We have guest mode though.
+    const pName = profile.isAuthenticated ? profile.name : `Misafir_${Math.floor(Math.random() * 9000) + 1000}`;
+    
+    if (selectedMode === 'blackout') {
+       setGameState('blackout_lobby');
+       socket.emit('join_blackout_lobby', { playerName: pName, targetRoomId: null });
+       return;
+    }
+
     setGameState('matching');
     socket.emit('find_match', {
-      playerName: profile.isAuthenticated ? profile.name : `Misafir_${Math.floor(Math.random() * 9000) + 1000}`,
+      playerName: pName,
       gameMode: selectedMode,
       token: token
     });
@@ -228,8 +251,31 @@ function App() {
     );
   }
 
+  if (gameState === 'blackout_lobby') {
+    return (
+       <BlackoutLobby 
+          socket={socket}
+          roomId={roomId}
+          players={players}
+          myId={myId}
+          onLeave={() => setGameState('menu')}
+       />
+    );
+  }
+
   if (gameState === 'game_summary') {
     return <><GameSummary stats={gameSummaryStats} onBackToMenu={handleBackToMenu} />{levelUpOverlay}</>;
+  }
+
+  if (gameState === 'blackout_playing') {
+    return (
+      <BlackoutArena 
+        socket={socket}
+        roomId={roomId}
+        players={players}
+        myId={myId}
+      />
+    );
   }
 
   if (gameMode === 'coop') {

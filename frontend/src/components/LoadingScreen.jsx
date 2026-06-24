@@ -1,4 +1,4 @@
-import { Loader2, Globe, Building2, Calculator, ShoppingBag, TrendingUp, Coins, LogOut, ShieldAlert, Info, Users } from 'lucide-react';
+import { Loader2, Globe, Building2, Calculator, ShoppingBag, TrendingUp, Coins, LogOut, ShieldAlert, Info, Users, Map } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import GlobalChat from './GlobalChat';
@@ -13,6 +13,7 @@ export default function LoadingScreen({ socket, poolCounts, isMatching, onStart,
     { id: 'capital', title: 'Başkent Düellosu', icon: <Building2 className="w-8 h-8" />, color: 'neon-purple', border: 'border-neon-purple', text: 'text-neon-purple', shadow: 'shadow-[0_0_20px_rgba(168,85,247,0.4)]' },
     { id: 'math', title: 'Matematik Hızı', icon: <Calculator className="w-8 h-8" />, color: 'neon-red', border: 'border-neon-red', text: 'text-neon-red', shadow: 'shadow-[0_0_20px_rgba(255,0,60,0.4)]' },
     { id: 'coop', title: 'Siber Sızma (Co-Op)', icon: <ShieldAlert className="w-8 h-8" />, color: 'neon-green', border: 'border-neon-green', text: 'text-neon-green', shadow: 'shadow-[0_0_20px_rgba(0,255,102,0.4)]' },
+    { id: 'blackout', title: 'Op: Karartma (2-4P)', icon: <Map className="w-8 h-8" />, color: 'orange-500', border: 'border-orange-500', text: 'text-orange-500', shadow: 'shadow-[0_0_20px_rgba(249,115,22,0.4)]' },
   ];
 
   const xpToNext = (profile?.level || 1) * 100;
