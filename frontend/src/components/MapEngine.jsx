@@ -182,7 +182,6 @@ export default function MapEngine({ mapData, players, myId, onMove }) {
     });
     
     // Fog of War (Only for Ghost)
-    const myRole = players[myId]?.role;
     if (myRole === 'ghost') {
        ctx.globalCompositeOperation = 'destination-in';
        const gradient = ctx.createRadialGradient(
