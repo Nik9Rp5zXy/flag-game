@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const flagsData = require('./src/data/flags.json');
 const capitalsData = require('./src/data/capitals.json');
 const shopItems = require('./src/data/shop_items.json');
+const blackoutMap = require('./src/data/blackout_map.json');
 const db = require('./src/db/database');
 
 const app = express();
@@ -933,12 +934,15 @@ io.on('connection', (socket) => {
         // Herkes hazirsa ve en az 2 kisi varsa baslat
         if (lobby.players.length >= 2 && lobby.players.every(x => x.isReady && x.role)) {
            lobby.status = 'playing';
-           io.to(roomId).emit('blackout_start_game', lobby);
+           const spawnPoints = [ {x: 32, y: 32}, {x: 64, y: 32}, {x: 32, y: 64}, {x: 64, y: 64} ];
+           let spawnIdx = 0;
            
-           // Istege bagli: activeGames'e de alabiliriz ki baglanti koptugunda yonetebilelim
+           io.to(roomId).emit('blackout_start_game', Object.assign({}, lobby, { map: blackoutMap }));
+           
            activeGames.set(roomId, {
               roomId, gameMode: 'blackout', players: lobby.players.reduce((acc, pl) => {
-                 acc[pl.id] = { id: pl.id, name: pl.name, role: pl.role, hp: 10 };
+                 const sp = spawnPoints[spawnIdx++];
+                 acc[pl.id] = { id: pl.id, name: pl.name, role: pl.role, hp: 10, x: sp.x, y: sp.y };
                  return acc;
               }, {})
            });
@@ -972,6 +976,29 @@ io.on('connection', (socket) => {
      const lobby = blackoutLobbies.get(roomId) || activeGames.get(roomId);
      if (!lobby || !lobby.players.find(p => p.id === socket.id && p.id) || !lobby.players.find(p => p.id === targetId && p.id)) return;
      io.to(targetId).emit('webrtc_ice_candidate', { senderId: socket.id, candidate });
+  });
+
+  socket.on('blackout_move', (data) => {
+     const { roomId, x, y } = data;
+     const game = activeGames.get(roomId);
+     if (!game || game.gameMode !== 'blackout') return;
+     
+     const p = game.players[socket.id];
+     if (!p) return;
+
+     // Basic Collision Check on server
+     const ts = blackoutMap.tileSize;
+     const col = Math.floor((x + ts/2) / ts);
+     const row = Math.floor((y + ts/2) / ts);
+     
+     if (row >= 0 && row < blackoutMap.height && col >= 0 && col < blackoutMap.width) {
+        if (blackoutMap.grid[row][col] === 0) {
+           p.x = x;
+           p.y = y;
+        }
+     }
+     
+     io.to(roomId).emit('blackout_sync', game.players);
   });
 
   socket.on('submit_answer', (data) => {

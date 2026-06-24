@@ -150,6 +150,9 @@ function App() {
       setRoomId(lobby.roomId);
     });
     newSocket.on('blackout_start_game', (lobby) => {
+      setBlackoutLobbyData(lobby); // For safety
+      setPlayers(lobby.players);
+      setRoomId(lobby.roomId);
       setGameState('blackout_playing');
       playSound('slam');
     });
@@ -274,6 +277,7 @@ function App() {
         roomId={roomId}
         players={players}
         myId={myId}
+        map={blackoutLobbyData?.map}
       />
     );
   }
