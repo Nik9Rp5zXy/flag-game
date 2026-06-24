@@ -940,12 +940,66 @@ io.on('connection', (socket) => {
            io.to(roomId).emit('blackout_start_game', Object.assign({}, lobby, { map: blackoutMap }));
            
            activeGames.set(roomId, {
-              roomId, gameMode: 'blackout', players: lobby.players.reduce((acc, pl) => {
+              roomId, 
+              gameMode: 'blackout', 
+              players: lobby.players.reduce((acc, pl) => {
                  const sp = spawnPoints[spawnIdx++];
                  acc[pl.id] = { id: pl.id, name: pl.name, role: pl.role, hp: 10, x: sp.x, y: sp.y };
                  return acc;
-              }, {})
+              }, {}),
+              mapState: {
+                 doors: JSON.parse(JSON.stringify(blackoutMap.doors || [])),
+                 terminals: JSON.parse(JSON.stringify(blackoutMap.terminals || [])),
+                 bots: [
+                     { id: 'bot1', x: 10 * 32, y: 5 * 32, dir: 1, speed: 2 },
+                     { id: 'bot2', x: 5 * 32, y: 12 * 32, dir: -1, speed: 2 }
+                 ]
+              }
            });
+           
+           const g = activeGames.get(roomId);
+           // Start Blackout Bot Loop if not started
+           if (!g.botTimer) {
+              g.botTimer = setInterval(() => {
+                 if (!activeGames.has(roomId)) {
+                    clearInterval(g.botTimer);
+                    return;
+                 }
+                 const cg = activeGames.get(roomId);
+                 let moved = false;
+                 cg.mapState.bots.forEach(bot => {
+                    bot.x += bot.speed * bot.dir;
+                    // Simple wall bounce
+                    const ts = blackoutMap.tileSize;
+                    const col = Math.floor((bot.x + ts/2) / ts);
+                    const row = Math.floor((bot.y + ts/2) / ts);
+                    if (row >= 0 && row < blackoutMap.height && col >= 0 && col < blackoutMap.width) {
+                       if (blackoutMap.grid[row][col] === 1) {
+                           bot.dir *= -1; // reverse
+                           bot.x += bot.speed * bot.dir * 2;
+                       }
+                    } else {
+                       bot.dir *= -1;
+                    }
+                    moved = true;
+                    
+                    // Collision with ghost
+                    Object.values(cg.players).forEach(p => {
+                        if (p.role === 'ghost') {
+                            const dist = Math.hypot(p.x - bot.x, p.y - bot.y);
+                            if (dist < 20) {
+                                p.hp = Math.max(0, p.hp - 1); // damage
+                                if (p.hp <= 0) {
+                                    io.to(roomId).emit('chat_error', { message: 'HAYALET YAKALANDI! GÖREV BAŞARISIZ.' });
+                                    // Normally we would end game here
+                                }
+                            }
+                        }
+                    });
+                 });
+                 if (moved) io.to(roomId).emit('blackout_sync', { players: cg.players, mapState: cg.mapState });
+              }, 100);
+           }
         }
      }
   });
@@ -992,13 +1046,49 @@ io.on('connection', (socket) => {
      const row = Math.floor((y + ts/2) / ts);
      
      if (row >= 0 && row < blackoutMap.height && col >= 0 && col < blackoutMap.width) {
-        if (blackoutMap.grid[row][col] === 0) {
+        // Also check if door is closed
+        const door = game.mapState.doors.find(d => d.x === col && d.y === row);
+        if (blackoutMap.grid[row][col] === 0 && (!door || door.isOpen)) {
            p.x = x;
            p.y = y;
         }
      }
      
-     io.to(roomId).emit('blackout_sync', game.players);
+     io.to(roomId).emit('blackout_sync', { players: game.players, mapState: game.mapState });
+  });
+
+  socket.on('blackout_interact', (data) => {
+     const { roomId, action, targetId } = data;
+     const game = activeGames.get(roomId);
+     if (!game || game.gameMode !== 'blackout') return;
+     
+     if (action === 'toggle_door') {
+         const door = game.mapState.doors.find(d => d.id === targetId);
+         if (door) {
+             door.isOpen = !door.isOpen;
+             io.to(roomId).emit('blackout_sync', { players: game.players, mapState: game.mapState });
+             
+             // Zamanlı kapı (5 saniye sonra otomatik kapanır)
+             if (door.isOpen) {
+                 setTimeout(() => {
+                     if (activeGames.has(roomId)) {
+                         const g = activeGames.get(roomId);
+                         const d = g.mapState.doors.find(x => x.id === targetId);
+                         if (d && d.isOpen) {
+                             d.isOpen = false;
+                             io.to(roomId).emit('blackout_sync', { players: g.players, mapState: g.mapState });
+                         }
+                     }
+                 }, 5000);
+             }
+         }
+     } else if (action === 'hack_terminal') {
+         const term = game.mapState.terminals.find(t => t.id === targetId);
+         if (term) {
+             term.isHacked = true;
+             io.to(roomId).emit('blackout_sync', { players: game.players, mapState: game.mapState });
+         }
+     }
   });
 
   socket.on('submit_answer', (data) => {

@@ -96,9 +96,15 @@ export default function MapEngine({ mapData, players, myId, onMove }) {
     
     const ts = mapData.tileSize;
     
-    // Camera offset (center on local player)
-    const cameraX = localPos.x - canvas.width / 2 + ts / 2;
-    const cameraY = localPos.y - canvas.height / 2 + ts / 2;
+    // Camera offset
+    const myRole = players[myId]?.role;
+    let cameraX = localPos.x - canvas.width / 2 + ts / 2;
+    let cameraY = localPos.y - canvas.height / 2 + ts / 2;
+    
+    if (myRole === 'oracle') {
+        cameraX = (mapData.width * ts) / 2 - canvas.width / 2;
+        cameraY = (mapData.height * ts) / 2 - canvas.height / 2;
+    }
 
     ctx.save();
     ctx.translate(-cameraX, -cameraY);
@@ -119,6 +125,44 @@ export default function MapEngine({ mapData, players, myId, onMove }) {
       }
     }
     
+    // Draw Doors
+    (mapState?.doors || []).forEach(d => {
+       ctx.fillStyle = d.isOpen ? 'rgba(34, 197, 94, 0.3)' : '#f97316'; // Open: transparent green, Closed: solid orange
+       ctx.shadowColor = d.isOpen ? 'transparent' : '#f97316';
+       ctx.shadowBlur = d.isOpen ? 0 : 10;
+       ctx.fillRect(d.x * ts, d.y * ts, ts, ts);
+       ctx.shadowBlur = 0;
+       
+       if (!d.isOpen) {
+           ctx.fillStyle = '#fff';
+           ctx.font = '8px Arial';
+           ctx.fillText('KAPI', d.x * ts + ts/2, d.y * ts + ts/2 + 3);
+       }
+    });
+
+    // Draw Terminals
+    (mapState?.terminals || []).forEach(t => {
+       ctx.fillStyle = t.isHacked ? '#3b82f6' : '#a855f7'; // Hacked: blue, Not: purple
+       ctx.beginPath();
+       ctx.arc(t.x * ts + ts/2, t.y * ts + ts/2, ts/3, 0, Math.PI * 2);
+       ctx.fill();
+       ctx.fillStyle = '#fff';
+       ctx.font = '8px Arial';
+       ctx.fillText('TRM', t.x * ts + ts/2, t.y * ts + ts/2 + 3);
+    });
+
+    // Draw Guard Bots
+    (mapState?.bots || []).forEach(b => {
+       ctx.fillStyle = '#ef4444'; // Red for enemy bots
+       ctx.shadowColor = '#ef4444';
+       ctx.shadowBlur = 10;
+       ctx.fillRect(b.x + ts/4, b.y + ts/4, ts/2, ts/2);
+       ctx.shadowBlur = 0;
+       ctx.fillStyle = '#fff';
+       ctx.font = '8px Arial';
+       ctx.fillText('BOT', b.x + ts/2, b.y + 5);
+    });
+    
     // Draw Players
     Object.values(players).forEach(p => {
       const isMe = p.id === myId;
@@ -137,8 +181,36 @@ export default function MapEngine({ mapData, players, myId, onMove }) {
       ctx.fillText(p.name, x + ts/2, y - 5);
     });
     
+    // Fog of War (Only for Ghost)
+    const myRole = players[myId]?.role;
+    if (myRole === 'ghost') {
+       ctx.globalCompositeOperation = 'destination-in';
+       const gradient = ctx.createRadialGradient(
+          localPos.x + ts/2, localPos.y + ts/2, ts,
+          localPos.x + ts/2, localPos.y + ts/2, ts * 4
+       );
+       gradient.addColorStop(0, 'rgba(0,0,0,1)');
+       gradient.addColorStop(1, 'rgba(0,0,0,0)');
+       ctx.fillStyle = gradient;
+       ctx.beginPath();
+       ctx.arc(localPos.x + ts/2, localPos.y + ts/2, ts * 4, 0, Math.PI * 2);
+       ctx.fill();
+       ctx.globalCompositeOperation = 'source-over';
+       
+       // Draw a dark overlay outside the vision
+       ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+       ctx.beginPath();
+       ctx.rect(cameraX, cameraY, canvas.width, canvas.height);
+       ctx.arc(localPos.x + ts/2, localPos.y + ts/2, ts * 4, 0, Math.PI * 2, true);
+       ctx.fill();
+    }
+    
     ctx.restore();
   };
+
+  // Adjust camera for Oracle
+  const myRole = players[myId]?.role;
+  const isOracle = myRole === 'oracle';
 
   return (
     <div className="relative w-full max-w-4xl border border-primary rounded shadow-[0_0_15px_rgba(22,163,74,0.5)] overflow-hidden">
