@@ -44,7 +44,7 @@ app.post('/api/register', (req, res) => {
     const stmt = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)');
     const info = stmt.run(username, hash, role);
     
-    const token = jwt.sign({ id: info.lastInsertRowid, username }, JWT_SECRET);
+    const token = jwt.sign({ id: info.lastInsertRowid, username }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token, username, level: 1, xp: 0, coins: 0, ownedItems: [], equippedItems: {}, role });
   } catch (e) {
     res.status(500).json({ error: 'Kayıt sırasında sunucu hatası oluştu' });
@@ -65,7 +65,7 @@ app.post('/api/login', (req, res) => {
       return res.status(400).json({ error: 'Hatalı şifre' });
     }
     
-    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ 
       token, 
       username, 
@@ -127,6 +127,7 @@ const blackoutLobbies = new Map();   // roomId -> LobbyState (for 2-4 player cus
 const playerProfiles = new Map();    // socketId -> session profile
 const disconnectedPlayers = new Map(); // socketId -> timeout details
 const rateLimitMap = new Map();      
+const chatRateLimitMap = new Map();
 const typingUsers = new Set();
 const MAX_CHAT_HISTORY = 50;
 let globalChatHistory = [];
@@ -583,6 +584,14 @@ io.on('connection', (socket) => {
       return socket.emit('chat_error', { message: 'Sohbet etmek için giriş yapmalısınız.' });
     }
 
+    // Rate Limiting (Spam Koruması)
+    const now = Date.now();
+    const lastChatTime = chatRateLimitMap.get(socket.id) || 0;
+    if (now - lastChatTime < 3000) {
+      return socket.emit('chat_error', { message: 'Çok hızlı mesaj gönderiyorsunuz. Lütfen bekleyin.' });
+    }
+    chatRateLimitMap.set(socket.id, now);
+
     if (profile.muteExpiresAt && new Date(profile.muteExpiresAt).getTime() > Date.now()) {
       return socket.emit('chat_error', { message: 'Sohbetten geçici olarak susturuldunuz.' });
     }
@@ -746,6 +755,17 @@ io.on('connection', (socket) => {
       } catch (e) { /* invalid token */ }
     }
 
+    // MULTI-BOXING CHECK
+    if (dbUserId) {
+       const isPlaying = [...activeGames.values()].some(g => Object.keys(g.players).some(id => id !== socket.id && playerProfiles.get(id)?.dbUserId === dbUserId)) || 
+                         Object.values(matchmakingPool).some(pool => pool.some(p => p.id !== socket.id && playerProfiles.get(p.id)?.dbUserId === dbUserId)) ||
+                         [...blackoutLobbies.values()].some(l => l.players.some(p => p.id !== socket.id && playerProfiles.get(p.id)?.dbUserId === dbUserId));
+       if (isPlaying) {
+          socket.emit('chat_error', { message: 'Hesabınız şu anda başka bir oyunda! Lütfen diğer sekmeyi kapatın.' });
+          return;
+       }
+    }
+
     const existingProfile = playerProfiles.get(socket.id) || {};
     playerProfiles.set(socket.id, { 
       ...existingProfile, 
@@ -821,6 +841,17 @@ io.on('connection', (socket) => {
      const { playerName, targetRoomId } = data;
      const profile = playerProfiles.get(socket.id) || {};
      const pName = profile.isAuthenticated ? profile.name : (playerName || `Misafir_${Math.floor(Math.random() * 9000) + 1000}`);
+     const dbUserId = profile.dbUserId;
+
+     // MULTI-BOXING CHECK
+     if (dbUserId) {
+       const isPlaying = [...activeGames.values()].some(g => Object.keys(g.players).some(id => id !== socket.id && playerProfiles.get(id)?.dbUserId === dbUserId)) || 
+                         Object.values(matchmakingPool).some(pool => pool.some(p => p.id !== socket.id && playerProfiles.get(p.id)?.dbUserId === dbUserId)) ||
+                         [...blackoutLobbies.values()].some(l => l.players.some(p => p.id !== socket.id && playerProfiles.get(p.id)?.dbUserId === dbUserId));
+       if (isPlaying) {
+          return socket.emit('chat_error', { message: 'Hesabınız şu anda başka bir oyunda! Lütfen diğer sekmeyi kapatın.' });
+       }
+     }
      
      let roomId = targetRoomId;
      let lobby = roomId ? blackoutLobbies.get(roomId) : null;
